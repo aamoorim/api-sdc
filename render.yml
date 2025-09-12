@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: meu-backend-php
+    name: api-sdc-php
     env: php
     plan: free
     buildCommand: ""
