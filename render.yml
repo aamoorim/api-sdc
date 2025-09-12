@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: meu-backend-php
+    env: php
+    plan: free
+    buildCommand: ""
+    startCommand: php -S 0.0.0.0:10000 -t .
+    envVars:
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        value: "5432"
+      - key: DB_NAME
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: APP_ENV
+        value: production
