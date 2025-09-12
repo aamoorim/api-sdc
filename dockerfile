@@ -6,6 +6,9 @@ COPY . /var/www/html/
 
 WORKDIR /var/www/html
 
-EXPOSE 8080
+RUN sed -i 's/80/10000/' /etc/apache2/sites-available/000-default.conf \
+    && sed -i 's/80/10000/' /etc/apache2/ports.conf
+
+EXPOSE 10000
 
 CMD ["apache2-foreground"]
