@@ -1,15 +1,14 @@
 services:
   - type: web
     name: api-sdc-php
-    env: php
+    env: docker
     plan: free
-    buildCommand: ""
-    startCommand: php -S 0.0.0.0:10000 -t .
+    dockerfilePath: ./Dockerfile
     envVars:
       - key: DB_HOST
         sync: false
       - key: DB_PORT
-        value: "5412"
+        value: "5432"
       - key: DB_NAME
         sync: false
       - key: DB_USER
