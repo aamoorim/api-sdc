@@ -52,18 +52,30 @@ if ($payload->role === "cliente" && $method === "POST") {
     
     // TÉCNICO - Ver chamados atribuídos a ele
     if ($payload->role === "tecnico" && $method === "GET" && !isset($uri[1])) {
+        // Buscar o tecnico_id a partir do usuario_id
+        $stmtTecnico = $pdo->prepare("SELECT id FROM tecnicos WHERE usuario_id = :usuario_id");
+        $stmtTecnico->execute(['usuario_id' => $payload->sub]);
+        $tecnico = $stmtTecnico->fetch(PDO::FETCH_ASSOC);
+
+        if (!$tecnico) {
+            http_response_code(403);
+            echo json_encode(["erro" => "Usuário não é um técnico válido"]);
+            exit;
+        }
+
         $stmt = $pdo->prepare("
             SELECT c.*, cl.empresa, u.nome as cliente_nome 
             FROM chamados c 
             JOIN clientes cl ON c.cliente_id = cl.id 
             JOIN usuarios u ON cl.usuario_id = u.id 
-            WHERE c.tecnico_id = :id 
+            WHERE c.tecnico_id = :tecnico_id 
             ORDER BY c.data_criacao DESC
         ");
-        $stmt->execute(['id' => $payload->sub]);
+        $stmt->execute(['tecnico_id' => $tecnico['id']]);
         echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
         exit;
     }
+
     
     // TÉCNICO - Ver chamados em aberto (para se atribuir)
     if ($payload->role === "tecnico" && $method === "GET" && ($uri[1] ?? '') === "abertos") {
@@ -207,6 +219,40 @@ if ($payload->role === "cliente" && $method === "POST") {
         exit;
     }
     
+    // ADMIN - Editar chamado (independente do status)
+    if ($payload->role === "admin" && $method === "PUT" && isset($uri[1])) {
+        $chamado_id = $uri[1];
+        $input = json_decode(file_get_contents("php://input"), true);
+
+        if (empty($input['titulo']) || empty($input['descricao'])) {
+            http_response_code(400);
+            echo json_encode(["erro" => "Informe 'titulo' e 'descricao'."]);
+            exit;
+        }
+
+        try {
+            $stmt = $pdo->prepare("UPDATE chamados 
+                SET titulo = :titulo, descricao = :descricao 
+                WHERE id = :id");
+            $stmt->execute([
+                'titulo' => $input['titulo'],
+                'descricao' => $input['descricao'],
+                'id' => $chamado_id
+            ]);
+
+            if ($stmt->rowCount() === 0) {
+                http_response_code(404);
+                echo json_encode(["erro" => "Chamado não encontrado"]);
+            } else {
+                echo json_encode(["status" => "Chamado atualizado com sucesso"]);
+            }
+        } catch (PDOException $e) {
+            http_response_code(500);
+            echo json_encode(["erro" => "Erro interno do servidor"]);
+        }
+        exit;
+    }
+
     // Se chegou até aqui, não encontrou a rota
     http_response_code(404);
     echo json_encode(["erro" => "Ação não encontrada"]);
