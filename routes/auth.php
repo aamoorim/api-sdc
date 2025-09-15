@@ -2,12 +2,11 @@
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../config/jwt.php';
 
-header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: http://localhost:5173');
-header('Access-Control-Allow-Methods: POST, GET, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type');
+// Não repetir headers de CORS — já estão no index.php
+// header('Content-Type: application/json');
 
-if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(204);
     exit(0);
 }
 
@@ -25,7 +24,6 @@ if ($method === "POST" && ($uri[1] ?? '') === "login") {
     $usuario = null;
     $tipo_usuario = null;
     
-    // Buscar usuário na tabela usuarios primeiro
     $stmt = $pdo->prepare("SELECT * FROM usuarios WHERE email = :email");
     $stmt->execute(['email' => $email]);
     $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -36,11 +34,9 @@ if ($method === "POST" && ($uri[1] ?? '') === "login") {
         exit;
     }
     
-    // Usar o tipo_usuario que já está definido na tabela usuarios
     $usuario = $result;
-    $tipo_usuario = $result['tipo_usuario']; // admin, cliente, ou tecnico
+    $tipo_usuario = $result['tipo_usuario'];
     
-    // Para clientes e técnicos, buscar informações adicionais se necessário
     if ($tipo_usuario === 'cliente') {
         $stmt = $pdo->prepare("SELECT c.*, u.* FROM clientes c JOIN usuarios u ON c.usuario_id = u.id WHERE u.id = :id");
         $stmt->execute(['id' => $result['id']]);
@@ -73,13 +69,11 @@ if ($method === "POST" && ($uri[1] ?? '') === "login") {
     exit;
 }
 
-// Logout (opcional - para invalidar token no frontend)
 if ($method === "POST" && ($uri[1] ?? '') === "logout") {
     echo json_encode(["status" => "Logout realizado com sucesso"]);
     exit;
 }
 
-// Verificar se token é válido
 if ($method === "GET" && ($uri[1] ?? '') === "verify") {
     $payload = autenticar();
     echo json_encode([

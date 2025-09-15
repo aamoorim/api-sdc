@@ -6,20 +6,22 @@ RUN apt-get update && apt-get install -y \
 
 RUN docker-php-ext-install pdo pdo_pgsql pgsql
 
-# HABILITAR O MOD_REWRITE DO APACHE
+# HABILITAR MOD_REWRITE
 RUN a2enmod rewrite
 
-# COPIAR OS ARQUIVOS DO PROJETO
+# COPIAR OS ARQUIVOS
 COPY . /var/www/html/
 WORKDIR /var/www/html
 
-# GARANTIR QUE .htaccess FUNCIONE CORRETAMENTE
+# PERMITIR USO DE .htaccess
 RUN sed -i 's/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf
 
-# ALTERAR PORTAS PARA RENDER
-RUN sed -i 's/80/10000/' /etc/apache2/sites-available/000-default.conf \
- && sed -i 's/80/10000/' /etc/apache2/ports.conf
+# USAR PORTA DO RENDER
+ENV PORT=8080
+EXPOSE ${PORT}
 
-EXPOSE 10000
+# AJUSTAR A CONFIG DO VHOST
+RUN sed -i "s/80/\${PORT}/g" /etc/apache2/sites-available/000-default.conf && \
+    sed -i "s/80/\${PORT}/g" /etc/apache2/ports.conf
 
 CMD ["apache2-foreground"]
