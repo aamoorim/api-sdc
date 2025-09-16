@@ -1,27 +1,22 @@
 <?php
-// Cabeçalhos para CORS
+// index.php
 header("Content-Type: application/json; charset=UTF-8");
 
-// Permitir qualquer origem 
-if (isset($_SERVER['HTTP_ORIGIN'])) {
-    header("Access-Control-Allow-Origin: " . $_SERVER['HTTP_ORIGIN']);
-} else {
-    header("Access-Control-Allow-Origin: *");
-}
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
 
-// Métodos permitidos e cabeçalhos personalizados
+// CORS Headers
+header("Access-Control-Allow-Origin: $origin");
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization");
 header("Access-Control-Allow-Credentials: true");
 
-// Responder a requisições de OPTIONS
+// Responde às requisições OPTIONS antes de qualquer lógica
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
-    exit;
+    http_response_code(204);
+    exit(0);
 }
 
-// --- Roteamento ---
-
+// Inicia roteamento
 $method = $_SERVER['REQUEST_METHOD'];
 $request_uri = $_SERVER['REQUEST_URI'];
 $path = parse_url($request_uri, PHP_URL_PATH);
