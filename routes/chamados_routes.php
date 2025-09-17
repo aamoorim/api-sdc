@@ -22,7 +22,7 @@ if ($uri[0] === "chamados") {
             exit;
         }
 
-        // TÉCNICO - Ver chamados atribuídos a ele
+        // TÉCNICO - Ver chamados atribuídos a ele, somente em andamento
         if ($payload->role === "tecnico") {
             if (!isset($uri[1])) {
                 $stmtTecnico = $pdo->prepare("SELECT id FROM tecnicos WHERE usuario_id = :usuario_id");
@@ -40,7 +40,7 @@ if ($uri[0] === "chamados") {
                     FROM chamados c 
                     JOIN clientes cl ON c.cliente_id = cl.id 
                     JOIN usuarios u ON cl.usuario_id = u.id 
-                    WHERE c.tecnico_id = :tecnico_id 
+                    WHERE c.tecnico_id = :tecnico_id AND c.status = 'em_andamento'
                     ORDER BY c.data_criacao DESC
                 ");
                 $stmt->execute(['tecnico_id' => $tecnico['id']]);
