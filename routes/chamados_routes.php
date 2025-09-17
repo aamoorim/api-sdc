@@ -191,7 +191,7 @@ if ($uri[0] === "chamados") {
             exit;
         }
 
-        // Técnico atribuir
+        // Técnico atribuir chamado
         if ($payload->role === "tecnico" && ($uri[2] ?? '') === "atribuir") {
             $stmtTecnico = $pdo->prepare("SELECT id FROM tecnicos WHERE usuario_id = :usuario_id");
             $stmtTecnico->execute(['usuario_id' => $payload->sub]);
