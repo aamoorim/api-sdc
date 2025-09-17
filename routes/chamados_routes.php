@@ -96,7 +96,7 @@ if ($method === "GET") {
             exit;
         }
 
-        // CORREÇÃO PRINCIPAL: Incluir dados completos do técnico e cliente
+        // Incluir dados completos do técnico e cliente
         if (!isset($uri[1]) || $uri[1] === "") {
             $stmt = $pdo->prepare("
                 SELECT c.*, 
