@@ -33,9 +33,17 @@ $payload = autenticar(); // função de autenticação via JWT
 if ($method === "GET") {
     if ($payload->role === "cliente") {
         $stmt = $pdo->prepare("
-            SELECT c.* 
+            SELECT c.*, 
+                   cl.empresa,
+                   uc.nome as cliente_nome,
+                   uc.email as cliente_email,
+                   ut.nome as tecnico_nome,
+                   ut.email as tecnico_email
             FROM chamados c 
             JOIN clientes cl ON c.cliente_id = cl.id 
+            JOIN usuarios uc ON cl.usuario_id = uc.id
+            LEFT JOIN tecnicos t ON c.tecnico_id = t.id 
+            LEFT JOIN usuarios ut ON t.usuario_id = ut.id
             WHERE cl.usuario_id = :usuario_id 
             ORDER BY c.data_criacao DESC
         ");
@@ -61,12 +69,13 @@ if ($method === "GET") {
                 SELECT 
                     c.*, 
                     cl.empresa, 
-                    u.nome AS cliente_nome, 
+                    uc.nome AS cliente_nome,
+                    uc.email AS cliente_email,
                     ut.nome AS tecnico_nome,
                     ut.email AS tecnico_email
                 FROM chamados c
                 JOIN clientes cl ON c.cliente_id = cl.id
-                JOIN usuarios u ON cl.usuario_id = u.id
+                JOIN usuarios uc ON cl.usuario_id = uc.id
                 LEFT JOIN tecnicos t ON c.tecnico_id = t.id
                 LEFT JOIN usuarios ut ON t.usuario_id = ut.id
                 WHERE c.id = :chamado_id AND c.tecnico_id = :tecnico_id
@@ -87,12 +96,20 @@ if ($method === "GET") {
             exit;
         }
 
+        // CORREÇÃO PRINCIPAL: Incluir dados completos do técnico e cliente
         if (!isset($uri[1]) || $uri[1] === "") {
             $stmt = $pdo->prepare("
-                SELECT c.*, cl.empresa, u.nome as cliente_nome 
+                SELECT c.*, 
+                       cl.empresa, 
+                       uc.nome as cliente_nome,
+                       uc.email as cliente_email,
+                       ut.nome as tecnico_nome,
+                       ut.email as tecnico_email
                 FROM chamados c 
                 JOIN clientes cl ON c.cliente_id = cl.id 
-                JOIN usuarios u ON cl.usuario_id = u.id 
+                JOIN usuarios uc ON cl.usuario_id = uc.id 
+                LEFT JOIN tecnicos t ON c.tecnico_id = t.id 
+                LEFT JOIN usuarios ut ON t.usuario_id = ut.id 
                 WHERE c.tecnico_id = :tecnico_id AND c.status = 'em_andamento'
                 ORDER BY c.data_criacao DESC
             ");
@@ -104,13 +121,40 @@ if ($method === "GET") {
 
         if (isset($uri[1]) && $uri[1] === "abertos") {
             $stmt = $pdo->query("
-                SELECT c.*, cl.empresa, cl.setor, u.nome as cliente_nome 
+                SELECT c.*, 
+                       cl.empresa, 
+                       cl.setor, 
+                       uc.nome as cliente_nome,
+                       uc.email as cliente_email
                 FROM chamados c 
                 JOIN clientes cl ON c.cliente_id = cl.id 
-                JOIN usuarios u ON cl.usuario_id = u.id 
+                JOIN usuarios uc ON cl.usuario_id = uc.id 
                 WHERE c.status = 'aberto' AND c.tecnico_id IS NULL 
                 ORDER BY c.data_criacao DESC
             ");
+            $dados = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            echo json_encode($dados);
+            exit;
+        }
+
+        // Adicionar rota para buscar todos os chamados do técnico (incluindo encerrados)
+        if (isset($uri[1]) && $uri[1] === "todos") {
+            $stmt = $pdo->prepare("
+                SELECT c.*, 
+                       cl.empresa, 
+                       uc.nome as cliente_nome,
+                       uc.email as cliente_email,
+                       ut.nome as tecnico_nome,
+                       ut.email as tecnico_email
+                FROM chamados c 
+                JOIN clientes cl ON c.cliente_id = cl.id 
+                JOIN usuarios uc ON cl.usuario_id = uc.id 
+                LEFT JOIN tecnicos t ON c.tecnico_id = t.id 
+                LEFT JOIN usuarios ut ON t.usuario_id = ut.id 
+                WHERE c.tecnico_id = :tecnico_id
+                ORDER BY c.data_criacao DESC
+            ");
+            $stmt->execute(['tecnico_id' => $tecnico['id']]);
             $dados = $stmt->fetchAll(PDO::FETCH_ASSOC);
             echo json_encode($dados);
             exit;
@@ -122,6 +166,7 @@ if ($method === "GET") {
             SELECT c.*, 
                    cl.empresa, cl.setor, 
                    uc.nome as cliente_nome,
+                   uc.email as cliente_email,
                    ut.nome as tecnico_nome,
                    ut.email as tecnico_email
             FROM chamados c 
@@ -315,6 +360,47 @@ if ($method === "PUT" && isset($uri[1])) {
 
         echo json_encode(["status" => "Chamado encerrado com sucesso"]);
         exit;
+    }
+
+    // Técnico atualizar status simples (para encerrar via frontend)
+    if ($payload->role === "tecnico") {
+        $stmtTecnico = $pdo->prepare("SELECT id FROM tecnicos WHERE usuario_id = :usuario_id");
+        $stmtTecnico->execute(['usuario_id' => $payload->sub]);
+        $tecnico = $stmtTecnico->fetch(PDO::FETCH_ASSOC);
+
+        if (!$tecnico) {
+            http_response_code(403);
+            echo json_encode(["erro" => "Técnico não encontrado"]);
+            exit;
+        }
+
+        // Verificar se é um chamado do técnico
+        $stmt = $pdo->prepare("SELECT * FROM chamados WHERE id = :id AND tecnico_id = :tecnico_id");
+        $stmt->execute(['id' => $chamado_id, 'tecnico_id' => $tecnico['id']]);
+
+        if ($stmt->rowCount() == 0) {
+            http_response_code(403);
+            echo json_encode(["erro" => "Chamado não encontrado ou não é seu"]);
+            exit;
+        }
+
+        // Se tem status no input, atualizar
+        if (isset($input['status'])) {
+            $stmtUpd = $pdo->prepare("UPDATE chamados SET status = :status WHERE id = :id AND tecnico_id = :tecnico_id");
+            $stmtUpd->execute([
+                'status' => $input['status'],
+                'id' => $chamado_id,
+                'tecnico_id' => $tecnico['id']
+            ]);
+
+            if ($stmtUpd->rowCount() > 0) {
+                echo json_encode(["status" => "Chamado atualizado com sucesso"]);
+            } else {
+                http_response_code(400);
+                echo json_encode(["erro" => "Falha ao atualizar chamado"]);
+            }
+            exit;
+        }
     }
 
     // ADMIN editar chamado
