@@ -1,4 +1,16 @@
 <?php
+// Habilitar CORS
+header("Access-Control-Allow-Origin: *");  // ou especificar origem permitida
+header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
+header("Access-Control-Max-Age: 86400"); // opcional: tempo para cache do preflight
+
+// Se for requisição preflight (OPTIONS), responder e sair
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
+
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../config/jwt.php';
 
@@ -182,7 +194,12 @@ if ($uri[0] === "chamados") {
 
         // Cliente editar próprio chamado
         if ($payload->role === "cliente") {
-            $stmtCliente = $pdo->prepare("SELECT c.cliente_id FROM chamados c JOIN clientes cl ON c.cliente_id = cl.id WHERE c.id = :id AND cl.usuario_id = :usuario_id");
+            $stmtCliente = $pdo->prepare("
+                SELECT c.cliente_id 
+                FROM chamados c 
+                JOIN clientes cl ON c.cliente_id = cl.id 
+                WHERE c.id = :id AND cl.usuario_id = :usuario_id
+            ");
             $stmtCliente->execute([
                 'id' => $chamado_id,
                 'usuario_id' => $payload->sub
@@ -352,6 +369,7 @@ if ($uri[0] === "chamados") {
         }
     }
 
+    // Se chegou aqui, rota não encontrada
     http_response_code(404);
     echo json_encode(["erro" => "Rota não encontrada"]);
     exit;
