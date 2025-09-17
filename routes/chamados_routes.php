@@ -37,10 +37,17 @@ if ($uri[0] === "chamados") {
             // Se foi pedido um chamado específico: /chamados/{id}
             if (isset($uri[1]) && is_numeric($uri[1])) {
                 $stmt = $pdo->prepare("
-                    SELECT c.*, cl.empresa, u.nome as cliente_nome 
-                    FROM chamados c 
-                    JOIN clientes cl ON c.cliente_id = cl.id 
-                    JOIN usuarios u ON cl.usuario_id = u.id 
+                    SELECT 
+                        c.*, 
+                        cl.empresa, 
+                        u.nome AS cliente_nome, 
+                        ut.nome AS tecnico_nome,
+                        ut.email AS tecnico_email
+                    FROM chamados c
+                    JOIN clientes cl ON c.cliente_id = cl.id
+                    JOIN usuarios u ON cl.usuario_id = u.id
+                    LEFT JOIN tecnicos t ON c.tecnico_id = t.id
+                    LEFT JOIN usuarios ut ON t.usuario_id = ut.id
                     WHERE c.id = :chamado_id AND c.tecnico_id = :tecnico_id
                 ");
                 $stmt->execute([
@@ -59,7 +66,7 @@ if ($uri[0] === "chamados") {
                 exit;
             }
 
-            // Se pedir /chamados (lista dos chamados em andamento do técnico)
+            // /chamados (lista dos chamados em andamento do técnico)
             if (($uri[1] ?? '') === "") {
                 $stmt = $pdo->prepare("
                     SELECT c.*, cl.empresa, u.nome as cliente_nome 
@@ -97,7 +104,8 @@ if ($uri[0] === "chamados") {
                 SELECT c.*, 
                        cl.empresa, cl.setor, 
                        uc.nome as cliente_nome,
-                       ut.nome as tecnico_nome
+                       ut.nome as tecnico_nome,
+                       ut.email as tecnico_email
                 FROM chamados c 
                 JOIN clientes cl ON c.cliente_id = cl.id 
                 JOIN usuarios uc ON cl.usuario_id = uc.id 
@@ -136,7 +144,6 @@ if ($uri[0] === "chamados") {
                 exit;
             }
 
-            // Inserção com status 'aberto'
             $stmtIns = $pdo->prepare("
                 INSERT INTO chamados (titulo, descricao, cliente_id, status, data_criacao)
                 VALUES (:titulo, :descricao, :cliente_id, 'aberto', NOW())
@@ -173,9 +180,8 @@ if ($uri[0] === "chamados") {
         $chamado_id = $uri[1];
         $input = json_decode(file_get_contents("php://input"), true);
 
-        // Cliente editar próprio chamado (somente titulo e descricao)
+        // Cliente editar próprio chamado
         if ($payload->role === "cliente") {
-            // Verifica se o chamado pertence ao cliente
             $stmtCliente = $pdo->prepare("SELECT c.cliente_id FROM chamados c JOIN clientes cl ON c.cliente_id = cl.id WHERE c.id = :id AND cl.usuario_id = :usuario_id");
             $stmtCliente->execute([
                 'id' => $chamado_id,
@@ -206,7 +212,6 @@ if ($uri[0] === "chamados") {
             ]);
 
             if ($stmtUpd->rowCount() > 0) {
-                // buscar chamado atualizado
                 $stmtSel = $pdo->prepare("SELECT * FROM chamados WHERE id = :id");
                 $stmtSel->execute(['id' => $chamado_id]);
                 $chamadoAtualizado = $stmtSel->fetch(PDO::FETCH_ASSOC);
@@ -319,7 +324,6 @@ if ($uri[0] === "chamados") {
             exit;
         }
 
-        // Se nenhum caso de PUT coincidir
         http_response_code(404);
         echo json_encode(["erro" => "Ação PUT não encontrada"]);
         exit;
@@ -348,7 +352,6 @@ if ($uri[0] === "chamados") {
         }
     }
 
-    // Se chegar aqui, rota não encontrada
     http_response_code(404);
     echo json_encode(["erro" => "Rota não encontrada"]);
     exit;
