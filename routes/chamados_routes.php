@@ -22,19 +22,45 @@ if ($uri[0] === "chamados") {
             exit;
         }
 
-        // TÉCNICO - Ver chamados atribuídos a ele, somente em andamento
+        // TÉCNICO - Ver chamados atribuídos a ele, somente em andamento OU chamado específico
         if ($payload->role === "tecnico") {
-            if (!isset($uri[1])) {
-                $stmtTecnico = $pdo->prepare("SELECT id FROM tecnicos WHERE usuario_id = :usuario_id");
-                $stmtTecnico->execute(['usuario_id' => $payload->sub]);
-                $tecnico = $stmtTecnico->fetch(PDO::FETCH_ASSOC);
+            $stmtTecnico = $pdo->prepare("SELECT id FROM tecnicos WHERE usuario_id = :usuario_id");
+            $stmtTecnico->execute(['usuario_id' => $payload->sub]);
+            $tecnico = $stmtTecnico->fetch(PDO::FETCH_ASSOC);
 
-                if (!$tecnico) {
-                    http_response_code(403);
-                    echo json_encode(["erro" => "Usuário não é um técnico válido"]);
+            if (!$tecnico) {
+                http_response_code(403);
+                echo json_encode(["erro" => "Usuário não é um técnico válido"]);
+                exit;
+            }
+
+            // Se foi pedido um chamado específico: /chamados/{id}
+            if (isset($uri[1]) && is_numeric($uri[1])) {
+                $stmt = $pdo->prepare("
+                    SELECT c.*, cl.empresa, u.nome as cliente_nome 
+                    FROM chamados c 
+                    JOIN clientes cl ON c.cliente_id = cl.id 
+                    JOIN usuarios u ON cl.usuario_id = u.id 
+                    WHERE c.id = :chamado_id AND c.tecnico_id = :tecnico_id
+                ");
+                $stmt->execute([
+                    'chamado_id' => $uri[1],
+                    'tecnico_id' => $tecnico['id']
+                ]);
+                $chamado = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                if (!$chamado) {
+                    http_response_code(404);
+                    echo json_encode(["erro" => "Chamado não encontrado ou não pertence ao técnico"]);
                     exit;
                 }
 
+                echo json_encode($chamado);
+                exit;
+            }
+
+            // Se pedir /chamados (lista dos chamados em andamento do técnico)
+            if (($uri[1] ?? '') === "") {
                 $stmt = $pdo->prepare("
                     SELECT c.*, cl.empresa, u.nome as cliente_nome 
                     FROM chamados c 
@@ -49,6 +75,7 @@ if ($uri[0] === "chamados") {
                 exit;
             }
 
+            // /chamados/abertos - chamados abertos, sem técnico atribuído
             if (($uri[1] ?? '') === "abertos") {
                 $stmt = $pdo->query("
                     SELECT c.*, cl.empresa, cl.setor, u.nome as cliente_nome 
