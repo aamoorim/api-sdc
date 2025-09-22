@@ -141,7 +141,7 @@ if ($uri[0] === "clientes") {
         $cliente_id = $uri[1];
         $input = json_decode(file_get_contents("php://input"), true);
 
-        // Validação básica
+        // Validação básica para campos obrigatórios
         if (empty($input['nome']) || empty($input['email']) || empty($input['empresa']) || empty($input['setor'])) {
             http_response_code(400);
             echo json_encode(["erro" => "Nome, email, empresa e setor são obrigatórios"]);
@@ -151,7 +151,7 @@ if ($uri[0] === "clientes") {
         try {
             $pdo->beginTransaction();
 
-            // Buscar o usuario_id do cliente
+            // Buscar o usuario_id relacionado ao cliente para atualização
             $stmt = $pdo->prepare("SELECT usuario_id FROM clientes WHERE id = :id");
             $stmt->execute(['id' => $cliente_id]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -164,7 +164,7 @@ if ($uri[0] === "clientes") {
 
             $usuario_id = $result['usuario_id'];
 
-            // Atualizar dados na tabela usuarios
+            // Atualizar dados na tabela usuarios (nome, email)
             $stmt = $pdo->prepare("UPDATE usuarios SET nome = :nome, email = :email WHERE id = :id");
             $stmt->execute([
                 "nome" => $input['nome'],
@@ -172,7 +172,7 @@ if ($uri[0] === "clientes") {
                 "id" => $usuario_id
             ]);
 
-            // Atualizar dados na tabela clientes
+            // Atualizar dados na tabela clientes (empresa, setor)
             $stmt = $pdo->prepare("UPDATE clientes SET empresa = :empresa, setor = :setor WHERE id = :id");
             $stmt->execute([
                 "empresa" => $input['empresa'],
@@ -180,7 +180,7 @@ if ($uri[0] === "clientes") {
                 "id" => $cliente_id
             ]);
 
-            // Se foi fornecida nova senha, atualizar
+            // Atualizar senha se fornecida
             if (!empty($input['senha'])) {
                 $hash = password_hash($input['senha'], PASSWORD_BCRYPT);
                 $stmt = $pdo->prepare("UPDATE usuarios SET senha = :senha WHERE id = :id");
@@ -189,7 +189,15 @@ if ($uri[0] === "clientes") {
 
             $pdo->commit();
 
-            echo json_encode(["status" => "Cliente atualizado com sucesso"]);
+            // Retornar os dados atualizados para facilitar atualização no frontend sem reload
+            echo json_encode([
+                "id" => (int)$cliente_id,
+                "usuario_id" => (int)$usuario_id,
+                "nome" => $input['nome'],
+                "email" => $input['email'],
+                "empresa" => $input['empresa'],
+                "setor" => $input['setor']
+            ]);
 
         } catch (PDOException $e) {
             $pdo->rollBack();
