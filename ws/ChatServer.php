@@ -71,20 +71,20 @@ class ChatServer extends WebSocketServer
 
                 // salva no banco
                 $stmt = $this->db->prepare("
-                    INSERT INTO mensagens (chamado_id, usuario_id, conteudo, criado_em)
-                    VALUES (:chamado_id, :usuario_id, :conteudo, NOW())
+                    INSERT INTO mensagens (chamado_id, usuario_id, mensagem, criado_em)
+                    VALUES (:chamado_id, :usuario_id, :mensagem, NOW())
                 ");
                 $stmt->execute([
                     ':chamado_id' => $user->current_chamado,
                     ':usuario_id' => $user->auth['id'],
-                    ':conteudo'   => $texto
+                    ':mensagem'   => $texto
                 ]);
 
                 $msg = [
                     'type'       => 'msg',
                     'chamado_id' => $user->current_chamado,
                     'usuario_id' => $user->auth['id'],
-                    'conteudo'   => $texto,
+                    'mensagem'   => $texto,
                     'criado_em'  => date('c')
                 ];
 

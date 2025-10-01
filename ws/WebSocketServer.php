@@ -52,19 +52,13 @@ abstract class WebSocketServer {
 
     /**
      * Loop principal do servidor (intencionalmente infinito).
-     * Static analyzers podem apontar "infinite loop" — é esperado, é um servidor.
-     *
-     * @noinspection PhpLoopNeverReturnsInspection
      */
     public function run(): void {
         while (true) {
             $read = $this->sockets;
             $write = $except = null;
 
-            // manutenção interna
             $this->_tick();
-
-            // Hook para subclasses
             $this->tick();
 
             @socket_select($read, $write, $except, 1);
@@ -77,11 +71,16 @@ abstract class WebSocketServer {
                         continue;
                     }
                     $this->connect($client);
-                    $this->stdout("Client connected. Socket: {$client}");
+
+                    if (@socket_getpeername($client, $address, $port)) {
+                        $this->stdout("Client connected from {$address}:{$port}");
+                    } else {
+                        $this->stdout("Client connected (IP/Port unavailable)");
+                    }
+
                 } else {
                     $numBytes = @socket_recv($socket, $buffer, $this->maxBufferSize, 0);
                     if ($numBytes === false) {
-                        // erro na conexão do socket
                         $sockErrNo = socket_last_error($socket);
                         $this->stderr("Socket error: " . socket_strerror($sockErrNo));
                         $this->disconnect($socket);
@@ -89,20 +88,17 @@ abstract class WebSocketServer {
                     }
 
                     if ($numBytes === 0) {
-                        // cliente desconectou graciosamente
                         $this->disconnect($socket);
                         continue;
                     }
 
                     $user = $this->getUserBySocket($socket);
                     if (!$user) {
-                        // usuário não encontrado — fecha conexão
                         socket_close($socket);
                         continue;
                     }
 
                     if (!$user->handshake) {
-                        // espera headers HTTP completos (terminador \r\n\r\n)
                         if (strpos($buffer, "\r\n\r\n") === false) continue;
                         $this->doHandshake($user, $buffer);
                     } else {
@@ -114,7 +110,6 @@ abstract class WebSocketServer {
     }
 
     // --- gerenciamento de conexões ----
-
     protected function connect($socket): void {
         $userId = uniqid('u');
         $user = new $this->userClass($userId, $socket);
@@ -148,7 +143,6 @@ abstract class WebSocketServer {
         }
     }
 
-    // Envia mensagem (armazena se handshake ainda não feito)
     protected function send($user, string $message): void {
         if ($user->handshake) {
             $frame = $this->frame($message, $user);
@@ -158,7 +152,6 @@ abstract class WebSocketServer {
         }
     }
 
-    // busca usuário por socket
     protected function getUserBySocket($socket) {
         foreach ($this->users as $u) {
             if ($u->socket === $socket) return $u;
@@ -170,38 +163,40 @@ abstract class WebSocketServer {
     // Autenticação JWT helper
     // -------------------------
     protected function authenticateUser(string $token) {
-        // tenta função validarToken() se existir no seu config/jwt.php
+    try {
         if (function_exists('validarToken')) {
-            try {
-                $payload = validarToken($token);
-                if (is_object($payload)) $payload = json_decode(json_encode($payload), true);
-                return $payload;
-            } catch (\Throwable $e) {
-                return false;
+            $payload = validarToken($token);
+            if (is_object($payload)) $payload = json_decode(json_encode($payload), true);
+        } elseif (class_exists('\Firebase\JWT\JWT')) {
+            $secret = $_ENV['JWT_SECRET'] ?? getenv('JWT_SECRET') ?: null;
+            if (!$secret) return false;
+            $decoded = \Firebase\JWT\JWT::decode($token, new \Firebase\JWT\Key($secret, 'HS256'));
+            $payload = json_decode(json_encode($decoded), true);
+        } else {
+            return false;
+        }
+
+        if (!$payload) return false;
+
+        // 🔑 Normaliza para sempre ter "id"
+        if (!isset($payload['id'])) {
+            if (isset($payload['usuario_id'])) {
+                $payload['id'] = $payload['usuario_id'];
+            } elseif (isset($payload['sub'])) {
+                $payload['id'] = $payload['sub'];
             }
         }
 
-        // tenta firebase/jwt se disponível
-        if (class_exists('\Firebase\JWT\JWT')) {
-            try {
-                $secret = $_ENV['JWT_SECRET'] ?? getenv('JWT_SECRET') ?: null;
-                if (!$secret) return false;
-                $decoded = \Firebase\JWT\JWT::decode($token, new \Firebase\JWT\Key($secret, 'HS256'));
-                $payload = json_decode(json_encode($decoded), true);
-                return $payload;
-            } catch (\Throwable $e) {
-                return false;
-            }
-        }
-
+        return $payload;
+    } catch (\Throwable $e) {
         return false;
     }
+}
 
     // -------------------------
     // Mensagens de manutenção
     // -------------------------
     protected function _tick(): void {
-        // Tenta reenviar mensagens que ficaram em hold (quando handshake não estava pronto)
         foreach ($this->heldMessages as $key => $hm) {
             $found = false;
             foreach ($this->users as $currentUser) {
@@ -219,7 +214,6 @@ abstract class WebSocketServer {
         }
     }
 
-    // Hook que subclasses podem sobrescrever (run chama isso)
     protected function tick(): void { }
 
     // -------------------------
@@ -258,7 +252,6 @@ abstract class WebSocketServer {
         $user->handshake = true;
         $user->headers = $headers;
 
-        // enviar mensagens que estavam em hold para esse usuário
         foreach ($this->heldMessages as $k => $hm) {
             if ($hm['user']->socket === $user->socket) {
                 $this->send($user, $hm['message']);
@@ -288,7 +281,6 @@ abstract class WebSocketServer {
         } elseif ($len < 65536) {
             $header = chr($b1) . chr(126) . pack('n', $len);
         } else {
-            // 64-bit length
             $header = chr($b1) . chr(127) . pack('J', $len);
         }
 
@@ -296,17 +288,12 @@ abstract class WebSocketServer {
     }
 
     protected function split_packet($length, $packet, $user): void {
-        // Simplificado: decodifica único frame (clientes browsers sempre máscara)
         $payload = $this->unmask($packet);
         if ($payload !== false) {
             $this->process($user, $payload);
         }
     }
 
-    /**
-     * Decodifica payload recebido do cliente (aplica máscara).
-     * Retorna string do payload ou false em erro.
-     */
     protected function unmask(string $payload) {
         $len = ord($payload[1]) & 127;
         $offset = 2;
@@ -316,7 +303,6 @@ abstract class WebSocketServer {
             $len = (ord($payload[2]) << 8) + ord($payload[3]);
         } elseif ($len === 127) {
             $offset = 10;
-            // 64bit length (apenas suporta até o tamanho da string)
             $len = 0;
             for ($i = 0; $i < 8; $i++) {
                 $len = ($len << 8) + ord($payload[2 + $i]);
@@ -335,7 +321,6 @@ abstract class WebSocketServer {
             }
             return $text;
         } else {
-            // não mascarado (servidor->cliente normalmente não), retorna direto
             return substr($payload, $offset);
         }
     }
