@@ -40,6 +40,9 @@ switch ($uri[0] ?? '') {
     case 'tecnicos':
         require __DIR__ . "/routes/tecnicos_routes.php";
         break;
+    case 'mensagens':
+        require __DIR__ . "/routes/mensagens_routes.php";
+        break;
     default:
         http_response_code(404);
         echo json_encode(["erro" => "Rota não encontrada"]);

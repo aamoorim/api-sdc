@@ -16,3 +16,5 @@ try {
 } catch (PDOException $e) {
     die(json_encode(["erro" => "Falha na conexão: " . $e->getMessage()]));
 }
+
+return $pdo;
