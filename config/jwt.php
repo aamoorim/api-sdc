@@ -9,7 +9,7 @@ function gerarToken($usuario, $tipo_usuario) {
         "role" => $tipo_usuario,
         "usuario_id" => $usuario['usuario_id'] ?? $usuario['id'], // Para clientes/técnicos que têm usuario_id
         "iat" => time(),
-        "exp" => time() + (60) // 8 horas
+        "exp" => time() + (60 * 60 * 8) // 8 horas
     ];
     return JWT::encode($payload, $_ENV['JWT_SECRET'], 'HS256');
 }
