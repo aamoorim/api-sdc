@@ -16,11 +16,10 @@ require_once __DIR__ . '/../config/jwt.php';
 
 // Pegar método HTTP e a URI fragmentada
 $method = $_SERVER['REQUEST_METHOD'];
-$path = $_SERVER['REQUEST_URI'];
-$path = parse_url($path, PHP_URL_PATH);
-$uri = array_values(array_filter(explode('/', $path))); // remove vazios e reindexa
+$path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+$path = preg_replace('#^/api-sdc/#', '', $path); // remove prefixo
+$uri = array_values(array_filter(explode('/', $path)));
 
-// Verifica se a rota é para chamados
 if (!isset($uri[0]) || $uri[0] !== 'chamados') {
     http_response_code(404);
     echo json_encode(["erro" => "Rota não encontrada"]);
@@ -28,6 +27,115 @@ if (!isset($uri[0]) || $uri[0] !== 'chamados') {
 }
 
 $payload = autenticar(); // função de autenticação via JWT
+
+
+// ============================
+// Rota específica: mensagens
+// ============================
+if (isset($uri[1]) && $uri[1] === "mensagens" && isset($uri[2])) {
+    $chamado_id = intval($uri[2]);
+
+    // Verificar acesso ao chamado
+    if ($payload->role === "cliente") {
+        $stmt = $pdo->prepare("
+            SELECT c.id 
+            FROM chamados c 
+            JOIN clientes cl ON c.cliente_id = cl.id
+            WHERE c.id = :chamado_id AND cl.usuario_id = :usuario_id
+        ");
+        $stmt->execute([
+            'chamado_id' => $chamado_id,
+            'usuario_id' => $payload->sub
+        ]);
+        if ($stmt->rowCount() === 0) {
+            http_response_code(403);
+            echo json_encode(['erro' => 'Chamado não encontrado ou sem permissão']);
+            exit;
+        }
+    } elseif ($payload->role === "tecnico") {
+        $stmtTecnico = $pdo->prepare("SELECT id FROM tecnicos WHERE usuario_id = :usuario_id");
+        $stmtTecnico->execute(['usuario_id' => $payload->sub]);
+        $tecnico = $stmtTecnico->fetch(PDO::FETCH_ASSOC);
+        if (!$tecnico) {
+            http_response_code(403);
+            echo json_encode(['erro' => 'Técnico não encontrado']);
+            exit;
+        }
+
+        $stmt = $pdo->prepare("SELECT * FROM chamados WHERE id = :chamado_id AND tecnico_id = :tecnico_id");
+        $stmt->execute([
+            'chamado_id' => $chamado_id,
+            'tecnico_id' => $tecnico['id']
+        ]);
+        if ($stmt->rowCount() === 0) {
+            http_response_code(403);
+            echo json_encode(['erro' => 'Chamado não pertence ao técnico']);
+            exit;
+        }
+    }
+
+    // GET - histórico de mensagens
+    if ($method === "GET") {
+        $stmt = $pdo->prepare("
+            SELECT m.id, m.mensagem, m.criado_em,
+                   u.id AS usuario_id, u.nome, u.tipo_usuario
+            FROM mensagens m
+            JOIN usuarios u ON u.id = m.usuario_id
+            WHERE m.chamado_id = :chamado_id
+            ORDER BY m.criado_em ASC
+        ");
+        $stmt->execute(['chamado_id' => $chamado_id]);
+        $mensagens = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        echo json_encode(['ok' => true, 'mensagens' => $mensagens]);
+        exit;
+    }
+
+    // POST - criar nova mensagem
+    if ($method === "POST") {
+        $input = json_decode(file_get_contents("php://input"), true);
+        $texto = trim($input['mensagem'] ?? '');
+
+        if ($texto === '') {
+            http_response_code(400);
+            echo json_encode(['erro' => 'Mensagem não pode ser vazia']);
+            exit;
+        }
+
+        $stmt = $pdo->prepare("
+            INSERT INTO mensagens (chamado_id, usuario_id, mensagem, criado_em)
+            VALUES (:chamado_id, :usuario_id, :mensagem, NOW())
+        ");
+        $stmt->execute([
+            'chamado_id' => $chamado_id,
+            'usuario_id' => $payload->sub,
+            'mensagem'   => $texto
+        ]);
+
+        $novaMsg = [
+            'type'       => 'msg',
+            'chamado_id' => $chamado_id,
+            'usuario_id' => $payload->sub,
+            'mensagem'   => $texto,
+            'criado_em'  => date('c')
+        ];
+
+        // Notificar WebSocket
+        $sock = @fsockopen("127.0.0.1", 9000, $errno, $errstr, 2);
+        if ($sock) {
+            fwrite($sock, json_encode($novaMsg) . "\n");
+            fclose($sock);
+        }
+
+        echo json_encode(['ok' => true, 'mensagem' => $novaMsg]);
+        exit;
+    }
+
+    http_response_code(405);
+    echo json_encode(['erro' => 'Método não permitido']);
+    exit;
+}
+
 
 // GET - Listar ou buscar chamados
 if ($method === "GET") {
