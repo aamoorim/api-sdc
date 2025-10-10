@@ -14,6 +14,18 @@ class ChatServer extends WebSocketServer
     /**
      * Processa mensagens enviadas pelos clientes.
      */
+
+    protected function getDb(): PDO {
+        if (!$this->db) {
+            $this->db = new PDO(
+                'mysql:host=localhost;dbname=seu_banco;charset=utf8mb4',
+                'usuario',
+                'senha',
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+            );
+        }
+        return $this->db;
+    }
     protected function process($user, string $message): void
     {
         $data = json_decode($message, true);
@@ -70,7 +82,7 @@ class ChatServer extends WebSocketServer
                 }
 
                 // salva no banco
-                $stmt = $this->db->prepare("
+                $stmt = $this->getDb()->prepare("
                     INSERT INTO mensagens (chamado_id, usuario_id, mensagem, criado_em)
                     VALUES (:chamado_id, :usuario_id, :mensagem, NOW())
                 ");
@@ -98,8 +110,8 @@ class ChatServer extends WebSocketServer
 
             default:
                 $this->send($user, json_encode(['erro' => 'Tipo de mensagem desconhecido']));
+            }
         }
-    }
 
     /**
      * Chamado quando um cliente conecta (antes de autenticar).
