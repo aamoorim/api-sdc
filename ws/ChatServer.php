@@ -16,16 +16,28 @@ class ChatServer extends WebSocketServer
      */
 
     protected function getDb(): PDO {
-        if (!$this->db) {
-            $this->db = new PDO(
-                'mysql:host=localhost;dbname=seu_banco;charset=utf8mb4',
-                'usuario',
-                'senha',
-                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
-            );
+    if (!$this->db) {
+        $host = getenv('DB_HOST');
+        $port = getenv('DB_PORT');
+        $dbname = getenv('DB_NAME');
+        $user = getenv('DB_USER');
+        $pass = getenv('DB_PASS');
+
+        $dsn = "pgsql:host=$host;port=$port;dbname=$dbname;sslmode=require";
+
+        try {
+            $this->db = new PDO($dsn, $user, $pass, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            ]);
+        } catch (PDOException $e) {
+            error_log("Erro de conexão com o banco: " . $e->getMessage());
+            throw $e;
         }
-        return $this->db;
     }
+    return $this->db;
+}
+
     protected function process($user, string $message): void
     {
         $data = json_decode($message, true);
