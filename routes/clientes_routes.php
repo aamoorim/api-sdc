@@ -2,6 +2,35 @@
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../config/jwt.php';
 
+// Função para validar senha
+function validarSenha($senha) {
+    if (strlen($senha) < 8) {
+        return "A senha deve ter pelo menos 8 caracteres.";
+    }
+    if (preg_match('/\s/', $senha)) {
+        return "A senha não pode conter espaços em branco.";
+    }
+    if (!preg_match('/[A-Z]/', $senha)) {
+        return "A senha deve conter pelo menos uma letra maiúscula.";
+    }
+    if (!preg_match('/[a-z]/', $senha)) {
+        return "A senha deve conter pelo menos uma letra minúscula.";
+    }
+    if (!preg_match('/[0-9]/', $senha)) {
+        return "A senha deve conter pelo menos um número.";
+    }
+    if (!preg_match('/[\W_]/', $senha)) {
+        return "A senha deve conter pelo menos um caractere especial.";
+    }
+    return true;
+}
+
+// Função para gerar senha aleatória forte
+function gerarSenhaAleatoria($tamanho = 12) {
+    $chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+';
+    return substr(str_shuffle(str_repeat($chars, ceil($tamanho/strlen($chars)))), 0, $tamanho);
+}
+
 if ($uri[0] === "clientes") {
     $payload = autenticar();
 
@@ -9,7 +38,6 @@ if ($uri[0] === "clientes") {
     if ($method === "GET" && isset($uri[1])) {
         $cliente_id = $uri[1];
 
-        // Buscar usuario_id do cliente solicitado
         $stmt = $pdo->prepare("SELECT usuario_id FROM clientes WHERE id = :id");
         $stmt->execute(['id' => $cliente_id]);
         $cliente = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -20,15 +48,12 @@ if ($uri[0] === "clientes") {
             exit;
         }
 
-        // Permitir admin acessar qualquer cliente
-        // Permitir cliente acessar somente seu próprio registro
         if ($payload->role !== "admin" && $cliente['usuario_id'] != $payload->sub) {
             http_response_code(403);
             echo json_encode(["erro" => "Acesso negado"]);
             exit;
         }
 
-        // Buscar e retornar os dados do cliente solicitado
         $stmt = $pdo->prepare("
             SELECT c.id, c.empresa, c.setor, u.nome, u.email, u.id as usuario_id
             FROM clientes c 
@@ -36,9 +61,7 @@ if ($uri[0] === "clientes") {
             WHERE c.id = :id
         ");
         $stmt->execute(['id' => $cliente_id]);
-        $dados = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        echo json_encode($dados);
+        echo json_encode($stmt->fetch(PDO::FETCH_ASSOC));
         exit;
     }
 
@@ -70,26 +93,30 @@ if ($uri[0] === "clientes") {
 
         $input = json_decode(file_get_contents("php://input"), true);
 
-        // Validação básica
         if (empty($input['nome']) || empty($input['email']) || empty($input['empresa']) || empty($input['setor'])) {
             http_response_code(400);
             echo json_encode(["erro" => "Nome, email, empresa e setor são obrigatórios"]);
             exit;
         }
 
-        // Usar senha fornecida ou gerar padrão baseada no nome
+        // Senha: se fornecida valida, senão gera aleatória
         if (!empty($input['senha'])) {
+            $validacao = validarSenha($input['senha']);
+            if ($validacao !== true) {
+                http_response_code(400);
+                echo json_encode(["erro" => $validacao]);
+                exit;
+            }
             $senha = $input['senha'];
         } else {
-            $primeiro_nome = strtolower(explode(' ', $input['nome'])[0]);
-            $senha = $primeiro_nome . rand(1000, 9999);
+            $senha = gerarSenhaAleatoria(12);
         }
+
         $hash = password_hash($senha, PASSWORD_BCRYPT);
 
         try {
             $pdo->beginTransaction();
 
-            // Inserir na tabela usuarios
             $stmt = $pdo->prepare("INSERT INTO usuarios (nome, email, senha, tipo_usuario) VALUES (:nome, :email, :senha, 'cliente')");
             $stmt->execute([
                 "nome" => $input['nome'],
@@ -98,7 +125,6 @@ if ($uri[0] === "clientes") {
             ]);
             $usuario_id = $pdo->lastInsertId();
 
-            // Inserir na tabela clientes
             $stmt = $pdo->prepare("INSERT INTO clientes (usuario_id, empresa, setor) VALUES (:usuario_id, :empresa, :setor)");
             $stmt->execute([
                 "usuario_id" => $usuario_id,
@@ -110,10 +136,10 @@ if ($uri[0] === "clientes") {
             $pdo->commit();
 
             echo json_encode([
-                "status" => "Cliente criado com sucesso", 
+                "status" => "Cliente criado com sucesso",
                 "id" => $cliente_id,
                 "usuario_id" => $usuario_id,
-                "senha_padrao" => $senha
+                "senha_inicial" => $senha
             ]);
 
         } catch (PDOException $e) {
@@ -141,7 +167,6 @@ if ($uri[0] === "clientes") {
         $cliente_id = $uri[1];
         $input = json_decode(file_get_contents("php://input"), true);
 
-        // Validação básica
         if (empty($input['nome']) || empty($input['email']) || empty($input['empresa']) || empty($input['setor'])) {
             http_response_code(400);
             echo json_encode(["erro" => "Nome, email, empresa e setor são obrigatórios"]);
@@ -151,7 +176,6 @@ if ($uri[0] === "clientes") {
         try {
             $pdo->beginTransaction();
 
-            // Buscar o usuario_id do cliente
             $stmt = $pdo->prepare("SELECT usuario_id FROM clientes WHERE id = :id");
             $stmt->execute(['id' => $cliente_id]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -164,7 +188,6 @@ if ($uri[0] === "clientes") {
 
             $usuario_id = $result['usuario_id'];
 
-            // Atualizar dados na tabela usuarios
             $stmt = $pdo->prepare("UPDATE usuarios SET nome = :nome, email = :email WHERE id = :id");
             $stmt->execute([
                 "nome" => $input['nome'],
@@ -172,7 +195,6 @@ if ($uri[0] === "clientes") {
                 "id" => $usuario_id
             ]);
 
-            // Atualizar dados na tabela clientes
             $stmt = $pdo->prepare("UPDATE clientes SET empresa = :empresa, setor = :setor WHERE id = :id");
             $stmt->execute([
                 "empresa" => $input['empresa'],
@@ -180,16 +202,30 @@ if ($uri[0] === "clientes") {
                 "id" => $cliente_id
             ]);
 
-            // Se foi fornecida nova senha, atualizar
-            if (!empty($input['senha'])) {
-                $hash = password_hash($input['senha'], PASSWORD_BCRYPT);
-                $stmt = $pdo->prepare("UPDATE usuarios SET senha = :senha WHERE id = :id");
-                $stmt->execute(['senha' => $hash, 'id' => $usuario_id]);
+            // Senha
+            $senhaRetorno = "não alterada";
+            if (isset($input['senha'])) {
+                if (!empty($input['senha'])) {
+                    $validacao = validarSenha($input['senha']);
+                    if ($validacao !== true) {
+                        http_response_code(400);
+                        echo json_encode(["erro" => $validacao]);
+                        exit;
+                    }
+                    $hash = password_hash($input['senha'], PASSWORD_BCRYPT);
+                    $stmt = $pdo->prepare("UPDATE usuarios SET senha = :senha WHERE id = :id");
+                    $stmt->execute(['senha' => $hash, 'id' => $usuario_id]);
+                    $senhaRetorno = $input['senha'];
+                }
             }
 
             $pdo->commit();
 
-            echo json_encode(["status" => "Cliente atualizado com sucesso"]);
+            echo json_encode([
+                "status" => "Cliente atualizado com sucesso",
+                "senha_atual" => $senhaRetorno
+            ]);
+            exit;
 
         } catch (PDOException $e) {
             $pdo->rollBack();
@@ -218,7 +254,6 @@ if ($uri[0] === "clientes") {
         try {
             $pdo->beginTransaction();
 
-            // Verificar se o cliente tem chamados
             $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM chamados WHERE cliente_id = :id");
             $stmt->execute(['id' => $cliente_id]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -229,7 +264,6 @@ if ($uri[0] === "clientes") {
                 exit;
             }
 
-            // Buscar o usuario_id do cliente
             $stmt = $pdo->prepare("SELECT usuario_id FROM clientes WHERE id = :id");
             $stmt->execute(['id' => $cliente_id]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -242,11 +276,9 @@ if ($uri[0] === "clientes") {
 
             $usuario_id = $result['usuario_id'];
 
-            // Excluir da tabela clientes primeiro
             $stmt = $pdo->prepare("DELETE FROM clientes WHERE id = :id");
             $stmt->execute(['id' => $cliente_id]);
 
-            // Depois excluir da tabela usuarios
             $stmt = $pdo->prepare("DELETE FROM usuarios WHERE id = :id");
             $stmt->execute(['id' => $usuario_id]);
 
@@ -262,7 +294,6 @@ if ($uri[0] === "clientes") {
         exit;
     }
 
-    // Se chegou até aqui, rota não encontrada
     http_response_code(404);
     echo json_encode(["erro" => "Ação não encontrada"]);
     exit;
