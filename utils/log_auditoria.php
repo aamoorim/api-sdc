@@ -26,7 +26,7 @@ function registrarLogAuditoria($pdo, $id_autor, $acao, $descricao, $valor_antigo
 
         // Montar e executar o INSERT
         $stmt = $pdo->prepare("
-            INSERT INTO logs_auditoria (id_autor, acao, descricao, valor_antigo, valor_novo, data_criacao)
+            INSERT INTO logs_auditoria (id_autor, acao, descricao, valor_antigo, valor_novo, data_hora)
             VALUES (:id_autor, :acao, :descricao, :valor_antigo, :valor_novo, NOW())
         ");
 
