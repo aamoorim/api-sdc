@@ -7,6 +7,7 @@ function gerarToken($usuario, $tipo_usuario) {
         "sub" => $usuario['id'],
         "email" => $usuario['email'],
         "role" => $tipo_usuario,
+         "nome" => $usuario['nome'],  
         "usuario_id" => $usuario['usuario_id'] ?? $usuario['id'], // Para clientes/técnicos que têm usuario_id
         "iat" => time(),
         "exp" => time() + (60 * 60 * 8) // 8 horas
