@@ -108,19 +108,23 @@ if ($uri[0] === "clientes") {
             ]);
             $cliente_id = $pdo->lastInsertId();
 
-             registrarLogAuditoria(
-            $pdo,
-            $payload->sub,
-            'criacao',
-            'Chamado criado',
-            null,
-            $novoChamado
-        );
+            registrarLogAuditoria(
+                $pdo,
+                $payload->sub,
+                "criar",
+                "Criou novo cliente",
+                null,
+                [
+                    "cliente_id" => $cliente_id,
+                    "usuario_id" => $usuario_id,
+                    "nome" => $input['nome'],
+                    "email" => $input['email'],
+                    "empresa" => $input['empresa'],
+                    "setor" => $input['setor']
+                ]
+            );
 
             $pdo->commit();
-
-            
-
             echo json_encode([
                 "status" => "Cliente criado com sucesso", 
                 "id" => $cliente_id,
