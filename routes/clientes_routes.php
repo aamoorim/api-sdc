@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../config/jwt.php';
+require_once __DIR__ . '/../utils/auditoria.php';
 
 if ($uri[0] === "clientes") {
     $payload = autenticar();
@@ -107,7 +108,18 @@ if ($uri[0] === "clientes") {
             ]);
             $cliente_id = $pdo->lastInsertId();
 
+             registrarLogAuditoria(
+            $pdo,
+            $payload->sub,
+            'criacao',
+            'Chamado criado',
+            null,
+            $novoChamado
+        );
+
             $pdo->commit();
+
+            
 
             echo json_encode([
                 "status" => "Cliente criado com sucesso", 
