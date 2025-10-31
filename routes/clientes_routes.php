@@ -1,7 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../config/jwt.php';
-require_once __DIR__ . '/../utils/auditoria.php';
+require_once __DIR__ . '/../utils/log_auditoria.php';
 
 if ($uri[0] === "clientes") {
     $payload = autenticar();
