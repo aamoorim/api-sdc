@@ -253,60 +253,75 @@ if ($method === "PUT" && isset($uri[1])) {
 
     // DELETE - Excluir cliente (apenas admin)
     if ($method === "DELETE" && isset($uri[1])) {
-        if ($payload->role !== "admin") {
-            http_response_code(403);
-            echo json_encode(["erro" => "Acesso negado"]);
+    if ($payload->role !== "admin") {
+        http_response_code(403);
+        echo json_encode(["erro" => "Acesso negado"]);
+        exit;
+    }
+
+    $cliente_id = $uri[1];
+
+    try {
+        $pdo->beginTransaction();
+
+        // Verificar se o cliente tem chamados
+        $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM chamados WHERE cliente_id = :id");
+        $stmt->execute(['id' => $cliente_id]);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($result['total'] > 0) {
+            http_response_code(400);
+            echo json_encode(["erro" => "Não é possível excluir cliente que possui chamados"]);
             exit;
         }
 
-        $cliente_id = $uri[1];
+        // Buscar dados do cliente antes de excluir
+        $stmt = $pdo->prepare("
+            SELECT u.nome, u.email, c.empresa, c.setor, c.id as cliente_id, u.id as usuario_id
+            FROM usuarios u 
+            JOIN clientes c ON u.id = c.usuario_id 
+            WHERE c.id = :id
+        ");
+        $stmt->execute(['id' => $cliente_id]);
+        $dados_antigos = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        try {
-            $pdo->beginTransaction();
-
-            // Verificar se o cliente tem chamados
-            $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM chamados WHERE cliente_id = :id");
-            $stmt->execute(['id' => $cliente_id]);
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if ($result['total'] > 0) {
-                http_response_code(400);
-                echo json_encode(["erro" => "Não é possível excluir cliente que possui chamados"]);
-                exit;
-            }
-
-            // Buscar o usuario_id do cliente
-            $stmt = $pdo->prepare("SELECT usuario_id FROM clientes WHERE id = :id");
-            $stmt->execute(['id' => $cliente_id]);
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$result) {
-                http_response_code(404);
-                echo json_encode(["erro" => "Cliente não encontrado"]);
-                exit;
-            }
-
-            $usuario_id = $result['usuario_id'];
-
-            // Excluir da tabela clientes primeiro
-            $stmt = $pdo->prepare("DELETE FROM clientes WHERE id = :id");
-            $stmt->execute(['id' => $cliente_id]);
-
-            // Depois excluir da tabela usuarios
-            $stmt = $pdo->prepare("DELETE FROM usuarios WHERE id = :id");
-            $stmt->execute(['id' => $usuario_id]);
-
-            $pdo->commit();
-
-            echo json_encode(["status" => "Cliente excluído com sucesso"]);
-
-        } catch (PDOException $e) {
-            $pdo->rollBack();
-            http_response_code(500);
-            echo json_encode(["erro" => "Erro interno do servidor: " . $e->getMessage()]);
+        if (!$dados_antigos) {
+            http_response_code(404);
+            echo json_encode(["erro" => "Cliente não encontrado"]);
+            exit;
         }
-        exit;
+
+        $usuario_id = $dados_antigos['usuario_id'];
+
+        // Excluir da tabela clientes primeiro
+        $stmt = $pdo->prepare("DELETE FROM clientes WHERE id = :id");
+        $stmt->execute(['id' => $cliente_id]);
+
+        // Depois excluir da tabela usuarios
+        $stmt = $pdo->prepare("DELETE FROM usuarios WHERE id = :id");
+        $stmt->execute(['id' => $usuario_id]);
+
+        // Registrar log de auditoria
+        registrarLogAuditoria(
+            $pdo,
+            $payload->sub,
+            "deletar",
+            "Excluiu cliente",
+            $dados_antigos,
+            null
+        );
+
+        $pdo->commit();
+
+        echo json_encode(["status" => "Cliente excluído com sucesso"]);
+
+    } catch (PDOException $e) {
+        $pdo->rollBack();
+        http_response_code(500);
+        echo json_encode(["erro" => "Erro interno do servidor: " . $e->getMessage()]);
     }
+    exit;
+  }
 
     // Se chegou até aqui, rota não encontrada
     http_response_code(404);
