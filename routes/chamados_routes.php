@@ -408,7 +408,7 @@ if ($method === "PUT" && isset($uri[1])) {
     // Atualizar status para encerrado
     $stmtUpd = $pdo->prepare("
         UPDATE chamados 
-        SET status = 'encerrado', data_encerramento = NOW() 
+        SET status = 'encerrado'
         WHERE id = :id AND tecnico_id = :tecnico_id
     ");
     $stmtUpd->execute(['id' => $chamado_id, 'tecnico_id' => $tecnico['id']]);
@@ -423,8 +423,8 @@ if ($method === "PUT" && isset($uri[1])) {
         registrarLogAuditoria(
             $pdo,
             $payload->sub,
-            'encerrar_chamado',
-            "Técnico encerrou o chamado ID {$chamado_id}",
+            'encerrou',
+            "Técnico encerrou o chamado ID ",
             $valorAntigo,
             $valorNovo
         );
