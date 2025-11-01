@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../config/jwt.php';
+require_once __DIR__ . '/../utils/log_auditoria.php';
 
 if ($uri[0] === "tecnicos") {
     $payload = autenticar();
@@ -24,67 +25,92 @@ if ($uri[0] === "tecnicos") {
     }
     
     // POST - Criar novo técnico
-    if ($method === "POST") {
-        $input = json_decode(file_get_contents("php://input"), true);
-        
-        // Validação básica
-        if (empty($input['nome']) || empty($input['email']) || empty($input['cargo'])) {
-            http_response_code(400);
-            echo json_encode(["erro" => "Nome, email e cargo são obrigatórios"]);
-            exit;
-        }
-        
-        // Usar senha fornecida ou gerar padrão baseada no nome
-        if (!empty($input['senha'])) {
-            $senha = $input['senha'];
-        } else {
-            $primeiro_nome = strtolower(explode(' ', $input['nome'])[0]);
-            $senha = $primeiro_nome . rand(1000, 9999);
-        }
-        $hash = password_hash($senha, PASSWORD_BCRYPT);
-        
-        try {
-            $pdo->beginTransaction();
-            
-            // Inserir na tabela usuarios
-            $stmt = $pdo->prepare("INSERT INTO usuarios (nome, email, senha, tipo_usuario) VALUES (:nome, :email, :senha, 'tecnico')");
-            $stmt->execute([
-                "nome" => $input['nome'],
-                "email" => $input['email'],
-                "senha" => $hash
-            ]);
-            $usuario_id = $pdo->lastInsertId();
-            
-            // Inserir na tabela tecnicos
-            $stmt = $pdo->prepare("INSERT INTO tecnicos (usuario_id, cargo) VALUES (:usuario_id, :cargo)");
-            $stmt->execute([
-                "usuario_id" => $usuario_id,
-                "cargo" => $input['cargo']
-            ]);
-            $tecnico_id = $pdo->lastInsertId();
-            
-            $pdo->commit();
-            
-            echo json_encode([
-                "status" => "Técnico criado com sucesso", 
-                "id" => $tecnico_id,
-                "usuario_id" => $usuario_id,
-                "senha_padrao" => $senha
-            ]);
-            
-        } catch (PDOException $e) {
-            $pdo->rollBack();
-            
-            if ($e->getCode() == 23000) {
-                http_response_code(400);
-                echo json_encode(["erro" => "Email já existe"]);
-            } else {
-                http_response_code(500);
-                echo json_encode(["erro" => "Erro interno do servidor: " . $e->getMessage()]);
-            }
-        }
+   if ($method === "POST") {
+    $input = json_decode(file_get_contents("php://input"), true);
+    
+    // Validação básica
+    if (empty($input['nome']) || empty($input['email']) || empty($input['cargo'])) {
+        http_response_code(400);
+        echo json_encode(["erro" => "Nome, email e cargo são obrigatórios"]);
         exit;
     }
+    
+    // Usar senha fornecida ou gerar padrão baseada no nome
+    if (!empty($input['senha'])) {
+        $senha = $input['senha'];
+    } else {
+        $primeiro_nome = strtolower(explode(' ', $input['nome'])[0]);
+        $senha = $primeiro_nome . rand(1000, 9999);
+    }
+    $hash = password_hash($senha, PASSWORD_BCRYPT);
+    
+    try {
+        $pdo->beginTransaction();
+        
+        // Inserir na tabela usuarios
+        $stmt = $pdo->prepare("
+            INSERT INTO usuarios (nome, email, senha, tipo_usuario) 
+            VALUES (:nome, :email, :senha, 'tecnico')
+        ");
+        $stmt->execute([
+            "nome" => $input['nome'],
+            "email" => $input['email'],
+            "senha" => $hash
+        ]);
+        $usuario_id = $pdo->lastInsertId();
+        
+        // Inserir na tabela tecnicos
+        $stmt = $pdo->prepare("
+            INSERT INTO tecnicos (usuario_id, cargo) 
+            VALUES (:usuario_id, :cargo)
+        ");
+        $stmt->execute([
+            "usuario_id" => $usuario_id,
+            "cargo" => $input['cargo']
+        ]);
+        $tecnico_id = $pdo->lastInsertId();
+        
+        $pdo->commit();
+
+        // ✅ Registrar log de auditoria
+        registrarLogAuditoria(
+            $pdo,
+            $payload->id, // ID do usuário autenticado que fez a ação
+            'criar tecnico',
+            "Criou o técnico {$input['nome']} (ID técnico: $tecnico_id, ID usuário: $usuario_id)",
+            null,
+            [
+                'usuario' => [
+                    'nome' => $input['nome'],
+                    'email' => $input['email'],
+                    'tipo_usuario' => 'tecnico'
+                ],
+                'tecnico' => [
+                    'cargo' => $input['cargo']
+                ]
+            ]
+        );
+        
+        echo json_encode([
+            "status" => "Técnico criado com sucesso", 
+            "id" => $tecnico_id,
+            "usuario_id" => $usuario_id,
+            "senha_padrao" => $senha
+        ]);
+        
+    } catch (PDOException $e) {
+        $pdo->rollBack();
+        
+        if ($e->getCode() == 23000) {
+            http_response_code(400);
+            echo json_encode(["erro" => "Email já existe"]);
+        } else {
+            http_response_code(500);
+            echo json_encode(["erro" => "Erro interno do servidor: " . $e->getMessage()]);
+        }
+    }
+    exit;
+}
     
     // PUT - Editar técnico
     if ($method === "PUT" && isset($uri[1])) {
