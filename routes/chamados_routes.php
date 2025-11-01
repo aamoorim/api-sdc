@@ -254,7 +254,7 @@ if ($method === "PUT" && isset($uri[1])) {
     $chamado_id = $uri[1];
     $input = json_decode(file_get_contents("php://input"), true);
 
-    // 🔹 Pegar dados antigos para o log
+    // Pegar dados antigos para o log
     $stmtAntigo = $pdo->prepare("SELECT * FROM chamados WHERE id = :id");
     $stmtAntigo->execute(['id' => $chamado_id]);
     $valorAntigo = $stmtAntigo->fetch(PDO::FETCH_ASSOC);
@@ -300,7 +300,7 @@ if ($method === "PUT" && isset($uri[1])) {
             $stmtSel->execute(['id' => $chamado_id]);
             $chamadoAtualizado = $stmtSel->fetch(PDO::FETCH_ASSOC);
             
-            // 🔹 Registrar log de edição
+            // Registrar log de edição
             registrarLogAuditoria(
                 $pdo,
                 $payload->sub,
@@ -319,47 +319,68 @@ if ($method === "PUT" && isset($uri[1])) {
     }
 
     // Técnico atribuir chamado
-    if ($payload->role === "tecnico" && isset($uri[2]) && $uri[2] === "atribuir") {
-        $stmtTecnico = $pdo->prepare("SELECT id FROM tecnicos WHERE usuario_id = :usuario_id");
-        $stmtTecnico->execute(['usuario_id' => $payload->sub]);
-        $tecnico = $stmtTecnico->fetch(PDO::FETCH_ASSOC);
+   if ($payload->role === "tecnico" && isset($uri[2]) && $uri[2] === "atribuir") {
+    $stmtTecnico = $pdo->prepare("SELECT id FROM tecnicos WHERE usuario_id = :usuario_id");
+    $stmtTecnico->execute(['usuario_id' => $payload->sub]);
+    $tecnico = $stmtTecnico->fetch(PDO::FETCH_ASSOC);
 
-        if (!$tecnico) {
-            http_response_code(403);
-            echo json_encode(["erro" => "Usuário não é um técnico válido"]);
-            exit;
-        }
-
-        $stmtChamado = $pdo->prepare("SELECT status FROM chamados WHERE id = :id");
-        $stmtChamado->execute(['id' => $chamado_id]);
-        $ch = $stmtChamado->fetch(PDO::FETCH_ASSOC);
-
-        if (!$ch) {
-            http_response_code(404);
-            echo json_encode(["erro" => "Chamado não encontrado"]);
-            exit;
-        }
-
-        if ($ch['status'] !== 'aberto') {
-            http_response_code(400);
-            echo json_encode(["erro" => "Chamado não está disponível para atribuição"]);
-            exit;
-        }
-
-        $stmtUpd = $pdo->prepare("UPDATE chamados SET tecnico_id = :tecnico_id, status = 'em_andamento' WHERE id = :id");
-        $stmtUpd->execute([
-            'tecnico_id' => $tecnico['id'],
-            'id'         => $chamado_id
-        ]);
-
-        if ($stmtUpd->rowCount() > 0) {
-            echo json_encode(["status" => "Chamado atribuído com sucesso"]);
-        } else {
-            http_response_code(400);
-            echo json_encode(["erro" => "Falha ao atribuir chamado"]);
-        }
+    if (!$tecnico) {
+        http_response_code(403);
+        echo json_encode(["erro" => "Usuário não é um técnico válido"]);
         exit;
     }
+
+    // Buscar dados antigos (para log)
+    $stmtAntigo = $pdo->prepare("SELECT * FROM chamados WHERE id = :id");
+    $stmtAntigo->execute(['id' => $chamado_id]);
+    $valorAntigo = $stmtAntigo->fetch(PDO::FETCH_ASSOC);
+
+    if (!$valorAntigo) {
+        http_response_code(404);
+        echo json_encode(["erro" => "Chamado não encontrado"]);
+        exit;
+    }
+
+    if ($valorAntigo['status'] !== 'aberto') {
+        http_response_code(400);
+        echo json_encode(["erro" => "Chamado não está disponível para atribuição"]);
+        exit;
+    }
+
+    // Atualiza o chamado
+    $stmtUpd = $pdo->prepare("
+        UPDATE chamados 
+        SET tecnico_id = :tecnico_id, status = 'em_andamento' 
+        WHERE id = :id
+    ");
+    $stmtUpd->execute([
+        'tecnico_id' => $tecnico['id'],
+        'id' => $chamado_id
+    ]);
+
+    if ($stmtUpd->rowCount() > 0) {
+        // Buscar dados novos após a atribuição
+        $stmtNovo = $pdo->prepare("SELECT * FROM chamados WHERE id = :id");
+        $stmtNovo->execute(['id' => $chamado_id]);
+        $valorNovo = $stmtNovo->fetch(PDO::FETCH_ASSOC);
+
+        // Registrar log de auditoria
+        registrarLogAuditoria(
+            $pdo,
+            $payload->sub,
+            'atribuiu',
+            "Técnico atribuiu ao chamado",
+            $valorAntigo,
+            $valorNovo
+        );
+
+        echo json_encode(["status" => "Chamado atribuído com sucesso"]);
+    } else {
+        http_response_code(400);
+        echo json_encode(["erro" => "Falha ao atribuir chamado"]);
+    }
+    exit;
+}
 
     // Técnico encerrar chamado
     if ($payload->role === "tecnico" && isset($uri[2]) && $uri[2] === "encerrar") {
