@@ -105,8 +105,8 @@ if ($uri[0] === "tecnicos") {
         registrarLogAuditoria(
             $pdo,
             $payload->sub, 
-            'criou',
-            "Criou o técnico",
+            'Criou',
+            "Criou novo técnico",
             null,
             [
                 'usuario' => [
@@ -206,8 +206,8 @@ if ($uri[0] === "tecnicos") {
         registrarLogAuditoria(
             $pdo,
             $payload->sub, 
-            'editou',
-            "Editou o técnico",
+            'Editou',
+            "Editou técnico",
             $valor_antigo,
             [
                 'nome' => $input['nome'],
@@ -282,8 +282,8 @@ if ($uri[0] === "tecnicos") {
         registrarLogAuditoria(
             $pdo,
             $payload->sub,
-            'deletou',
-            "Excluiu o técnico",
+            'Deletou',
+            "Técnico Deletado",
             $valor_antigo,
             null
         );

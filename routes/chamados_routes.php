@@ -342,8 +342,8 @@ if ($method === "POST") {
         registrarLogAuditoria(
             $pdo,
             $payload->sub,
-            'criou',
-            'Chamado criado',
+            'Criou',
+            'Criou novo chamado',
             null,
             $novoChamado
         );
@@ -412,8 +412,8 @@ if ($method === "PUT" && isset($uri[1])) {
             registrarLogAuditoria(
                 $pdo,
                 $payload->sub,
-                'editou',
-                'Chamado atualizado',
+                'Editou',
+                'Chamado editado pelo cliente',
                 $valorAntigo,
                 $chamadoAtualizado
             );
@@ -476,7 +476,7 @@ if ($method === "PUT" && isset($uri[1])) {
         registrarLogAuditoria(
             $pdo,
             $payload->sub,
-            'atribuiu',
+            'Atribuiu',
             "Técnico atribuiu ao chamado",
             $valorAntigo,
             $valorNovo
@@ -531,8 +531,8 @@ if ($method === "PUT" && isset($uri[1])) {
         registrarLogAuditoria(
             $pdo,
             $payload->sub,
-            'encerrou',
-            "Técnico encerrou o chamado ID ",
+            'Encerrou',
+            "Técnico encerrou o chamado",
             $valorAntigo,
             $valorNovo
         );
@@ -627,8 +627,8 @@ if ($method === "PUT" && isset($uri[1])) {
         registrarLogAuditoria(
             $pdo,
             $payload->sub,
-            'editou',
-            'Chamado atualizado pelo administrador',
+            'Editou',
+            'Chamado editado pelo administrador',
             $valorAntigo,
             $chamadoAtualizado
         );
@@ -670,7 +670,7 @@ if ($method === "DELETE" && isset($uri[1])) {
         registrarLogAuditoria(
             $pdo,
             $payload->sub,
-            'deletou',
+            'Deletou',
             'Chamado deletado',
             $valorAntigo,
             null

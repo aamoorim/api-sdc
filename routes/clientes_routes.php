@@ -137,7 +137,7 @@ if ($uri[0] === "clientes") {
             registrarLogAuditoria(
                 $pdo,
                 $payload->sub,
-                "criou",
+                "Criou",
                 "Criou novo cliente",
                 null,
                 [
@@ -245,7 +245,7 @@ if ($method === "PUT" && isset($uri[1])) {
         registrarLogAuditoria(
             $pdo,
             $payload->sub,
-            "editou",
+            "Editou",
             "Editou cliente",
             $dados_antigos,
             [
@@ -330,8 +330,8 @@ if ($method === "PUT" && isset($uri[1])) {
         registrarLogAuditoria(
             $pdo,
             $payload->sub,
-            "deletou",
-            "Excluiu cliente",
+            "Deletou",
+            "Cliente Deletado",
             $dados_antigos,
             null
         );
