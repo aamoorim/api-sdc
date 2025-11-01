@@ -479,34 +479,59 @@ if ($method === "PUT" && isset($uri[1])) {
     }
 
     // ADMIN editar chamado
-    if ($payload->role === "admin") {
-        if (empty($input['titulo']) || empty($input['descricao'])) {
-            http_response_code(400);
-            echo json_encode(["erro" => "Informe 'titulo' e 'descricao'."]);
-            exit;
-        }
-        $stmtUpd = $pdo->prepare("
-            UPDATE chamados
-            SET titulo = :titulo, descricao = :descricao
-            WHERE id = :id
-        ");
-        $stmtUpd->execute([
-            'titulo'    => $input['titulo'],
-            'descricao' => $input['descricao'],
-            'id'        => $chamado_id
-        ]);
-
-        if ($stmtUpd->rowCount() > 0) {
-            $stmtSel = $pdo->prepare("SELECT * FROM chamados WHERE id = :id");
-            $stmtSel->execute(['id' => $chamado_id]);
-            $chamadoAtualizado = $stmtSel->fetch(PDO::FETCH_ASSOC);
-            echo json_encode($chamadoAtualizado);
-        } else {
-            http_response_code(404);
-            echo json_encode(["erro" => "Chamado não encontrado"]);
-        }
+   if ($payload->role === "admin") {
+    if (empty($input['titulo']) || empty($input['descricao'])) {
+        http_response_code(400);
+        echo json_encode(["erro" => "Informe 'titulo' e 'descricao'."]);
         exit;
     }
+
+    // Buscar dados antigos antes da atualização
+    $stmtAntigo = $pdo->prepare("SELECT * FROM chamados WHERE id = :id");
+    $stmtAntigo->execute(['id' => $chamado_id]);
+    $valorAntigo = $stmtAntigo->fetch(PDO::FETCH_ASSOC);
+
+    if (!$valorAntigo) {
+        http_response_code(404);
+        echo json_encode(["erro" => "Chamado não encontrado"]);
+        exit;
+    }
+
+    // Atualizar dados do chamado
+    $stmtUpd = $pdo->prepare("
+        UPDATE chamados
+        SET titulo = :titulo, descricao = :descricao
+        WHERE id = :id
+    ");
+    $stmtUpd->execute([
+        'titulo'    => $input['titulo'],
+        'descricao' => $input['descricao'],
+        'id'        => $chamado_id
+    ]);
+
+    if ($stmtUpd->rowCount() > 0) {
+        // Buscar dados novos após a atualização
+        $stmtSel = $pdo->prepare("SELECT * FROM chamados WHERE id = :id");
+        $stmtSel->execute(['id' => $chamado_id]);
+        $chamadoAtualizado = $stmtSel->fetch(PDO::FETCH_ASSOC);
+
+        // Registrar log de auditoria
+        registrarLogAuditoria(
+            $pdo,
+            $payload->sub,
+            'editou',
+            'Chamado atualizado pelo administrador',
+            $valorAntigo,
+            $chamadoAtualizado
+        );
+
+        echo json_encode($chamadoAtualizado);
+    } else {
+        http_response_code(404);
+        echo json_encode(["erro" => "Chamado não encontrado ou sem alterações"]);
+    }
+    exit;
+}
 
     http_response_code(404);
     echo json_encode(["erro" => "Ação PUT não encontrada"]);
