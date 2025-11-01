@@ -383,32 +383,59 @@ if ($method === "PUT" && isset($uri[1])) {
 }
 
     // Técnico encerrar chamado
-    if ($payload->role === "tecnico" && isset($uri[2]) && $uri[2] === "encerrar") {
-        $stmtTecnico = $pdo->prepare("SELECT id FROM tecnicos WHERE usuario_id = :usuario_id");
-        $stmtTecnico->execute(['usuario_id' => $payload->sub]);
-        $tecnico = $stmtTecnico->fetch(PDO::FETCH_ASSOC);
+   if ($payload->role === "tecnico" && isset($uri[2]) && $uri[2] === "encerrar") {
+    $stmtTecnico = $pdo->prepare("SELECT id FROM tecnicos WHERE usuario_id = :usuario_id");
+    $stmtTecnico->execute(['usuario_id' => $payload->sub]);
+    $tecnico = $stmtTecnico->fetch(PDO::FETCH_ASSOC);
 
-        if (!$tecnico) {
-            http_response_code(403);
-            echo json_encode(["erro" => "Técnico não encontrado"]);
-            exit;
-        }
-
-        $stmt = $pdo->prepare("SELECT * FROM chamados WHERE id = :id AND tecnico_id = :tecnico_id");
-        $stmt->execute(['id' => $chamado_id, 'tecnico_id' => $tecnico['id']]);
-
-        if ($stmt->rowCount() == 0) {
-            http_response_code(400);
-            echo json_encode(["erro" => "Chamado não encontrado ou não é seu"]);
-            exit;
-        }
-
-        $stmtUpd = $pdo->prepare("UPDATE chamados SET status = 'encerrado' WHERE id = :id AND tecnico_id = :tecnico_id");
-        $stmtUpd->execute(['id' => $chamado_id, 'tecnico_id' => $tecnico['id']]);
-
-        echo json_encode(["status" => "Chamado encerrado com sucesso"]);
+    if (!$tecnico) {
+        http_response_code(403);
+        echo json_encode(["erro" => "Técnico não encontrado"]);
         exit;
     }
+
+    // Buscar dados antigos (antes de encerrar)
+    $stmt = $pdo->prepare("SELECT * FROM chamados WHERE id = :id AND tecnico_id = :tecnico_id");
+    $stmt->execute(['id' => $chamado_id, 'tecnico_id' => $tecnico['id']]);
+    $valorAntigo = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$valorAntigo) {
+        http_response_code(400);
+        echo json_encode(["erro" => "Chamado não encontrado ou não é seu"]);
+        exit;
+    }
+
+    // Atualizar status para encerrado
+    $stmtUpd = $pdo->prepare("
+        UPDATE chamados 
+        SET status = 'encerrado', data_encerramento = NOW() 
+        WHERE id = :id AND tecnico_id = :tecnico_id
+    ");
+    $stmtUpd->execute(['id' => $chamado_id, 'tecnico_id' => $tecnico['id']]);
+
+    if ($stmtUpd->rowCount() > 0) {
+        // Buscar o novo estado após o encerramento
+        $stmtNovo = $pdo->prepare("SELECT * FROM chamados WHERE id = :id");
+        $stmtNovo->execute(['id' => $chamado_id]);
+        $valorNovo = $stmtNovo->fetch(PDO::FETCH_ASSOC);
+
+        // Registrar log de auditoria
+        registrarLogAuditoria(
+            $pdo,
+            $payload->sub,
+            'encerrar_chamado',
+            "Técnico encerrou o chamado ID {$chamado_id}",
+            $valorAntigo,
+            $valorNovo
+        );
+
+        echo json_encode(["status" => "Chamado encerrado com sucesso"]);
+    } else {
+        http_response_code(400);
+        echo json_encode(["erro" => "Falha ao encerrar chamado"]);
+    }
+    exit;
+}
 
     // Técnico atualizar status simples (para encerrar via frontend)
     if ($payload->role === "tecnico") {
