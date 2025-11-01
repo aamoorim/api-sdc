@@ -113,72 +113,95 @@ if ($uri[0] === "tecnicos") {
 }
     
     // PUT - Editar técnico
-    if ($method === "PUT" && isset($uri[1])) {
-        $tecnico_id = $uri[1];
-        $input = json_decode(file_get_contents("php://input"), true);
+   if ($method === "PUT" && isset($uri[1])) {
+    $tecnico_id = $uri[1];
+    $input = json_decode(file_get_contents("php://input"), true);
+    
+    // Validação básica
+    if (empty($input['nome']) || empty($input['email']) || empty($input['cargo'])) {
+        http_response_code(400);
+        echo json_encode(["erro" => "Nome, email e cargo são obrigatórios"]);
+        exit;
+    }
+    
+    try {
+        $pdo->beginTransaction();
         
-        // Validação básica
-        if (empty($input['nome']) || empty($input['email']) || empty($input['cargo'])) {
-            http_response_code(400);
-            echo json_encode(["erro" => "Nome, email e cargo são obrigatórios"]);
+        // Buscar dados antigos do técnico antes de atualizar (para log)
+        $stmt = $pdo->prepare("
+            SELECT u.id as usuario_id, u.nome, u.email, t.cargo
+            FROM tecnicos t
+            JOIN usuarios u ON u.id = t.usuario_id
+            WHERE t.id = :id
+        ");
+        $stmt->execute(['id' => $tecnico_id]);
+        $valor_antigo = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$valor_antigo) {
+            http_response_code(404);
+            echo json_encode(["erro" => "Técnico não encontrado"]);
             exit;
         }
         
-        try {
-            $pdo->beginTransaction();
-            
-            // Buscar o usuario_id do técnico
-            $stmt = $pdo->prepare("SELECT usuario_id FROM tecnicos WHERE id = :id");
-            $stmt->execute(['id' => $tecnico_id]);
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            if (!$result) {
-                http_response_code(404);
-                echo json_encode(["erro" => "Técnico não encontrado"]);
-                exit;
-            }
-            
-            $usuario_id = $result['usuario_id'];
-            
-            // Atualizar dados na tabela usuarios
-            $stmt = $pdo->prepare("UPDATE usuarios SET nome = :nome, email = :email WHERE id = :id");
-            $stmt->execute([
-                "nome" => $input['nome'],
-                "email" => $input['email'],
-                "id" => $usuario_id
-            ]);
-            
-            // Atualizar dados na tabela tecnicos
-            $stmt = $pdo->prepare("UPDATE tecnicos SET cargo = :cargo WHERE id = :id");
-            $stmt->execute([
-                "cargo" => $input['cargo'],
-                "id" => $tecnico_id
-            ]);
-            
-            // Se foi fornecida nova senha, atualizar
-            if (!empty($input['senha'])) {
-                $hash = password_hash($input['senha'], PASSWORD_BCRYPT);
-                $stmt = $pdo->prepare("UPDATE usuarios SET senha = :senha WHERE id = :id");
-                $stmt->execute(['senha' => $hash, 'id' => $usuario_id]);
-            }
-            
-            $pdo->commit();
-            
-            echo json_encode(["status" => "Técnico atualizado com sucesso"]);
-            
-        } catch (PDOException $e) {
-            $pdo->rollBack();
-            
-            if ($e->getCode() == 23000) {
-                http_response_code(400);
-                echo json_encode(["erro" => "Email já existe"]);
-            } else {
-                http_response_code(500);
-                echo json_encode(["erro" => "Erro interno do servidor: " . $e->getMessage()]);
-            }
+        $usuario_id = $valor_antigo['usuario_id'];
+        
+        // Atualizar dados na tabela usuarios
+        $stmt = $pdo->prepare("
+            UPDATE usuarios SET nome = :nome, email = :email WHERE id = :id
+        ");
+        $stmt->execute([
+            "nome" => $input['nome'],
+            "email" => $input['email'],
+            "id" => $usuario_id
+        ]);
+        
+        // Atualizar dados na tabela tecnicos
+        $stmt = $pdo->prepare("
+            UPDATE tecnicos SET cargo = :cargo WHERE id = :id
+        ");
+        $stmt->execute([
+            "cargo" => $input['cargo'],
+            "id" => $tecnico_id
+        ]);
+        
+        // Se foi fornecida nova senha, atualizar
+        if (!empty($input['senha'])) {
+            $hash = password_hash($input['senha'], PASSWORD_BCRYPT);
+            $stmt = $pdo->prepare("UPDATE usuarios SET senha = :senha WHERE id = :id");
+            $stmt->execute(['senha' => $hash, 'id' => $usuario_id]);
         }
-        exit;
+        
+        $pdo->commit();
+
+        // ✅ Registrar log de auditoria
+        registrarLogAuditoria(
+            $pdo,
+            $payload->sub, // ou $payload->id dependendo do seu JWT
+            'editar',
+            "Editou o técnico",
+            $valor_antigo,
+            [
+                'nome' => $input['nome'],
+                'email' => $input['email'],
+                'cargo' => $input['cargo']
+            ]
+        );
+        
+        echo json_encode(["status" => "Técnico atualizado com sucesso"]);
+        
+    } catch (PDOException $e) {
+        $pdo->rollBack();
+        
+        if ($e->getCode() == 23000) {
+            http_response_code(400);
+            echo json_encode(["erro" => "Email já existe"]);
+        } else {
+            http_response_code(500);
+            echo json_encode(["erro" => "Erro interno do servidor: " . $e->getMessage()]);
+        }
     }
+    exit;
+}
     
     // DELETE - Excluir técnico
     if ($method === "DELETE" && isset($uri[1])) {
