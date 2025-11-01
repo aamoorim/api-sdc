@@ -75,9 +75,9 @@ if ($uri[0] === "tecnicos") {
         // ✅ Registrar log de auditoria
         registrarLogAuditoria(
             $pdo,
-            $payload->id, // ID do usuário autenticado que fez a ação
+            $payload->sub, // ID do usuário autenticado que fez a ação
             'criar tecnico',
-            "Criou o técnico {$input['nome']} (ID técnico: $tecnico_id, ID usuário: $usuario_id)",
+            "Criou o técnico",
             null,
             [
                 'usuario' => [
