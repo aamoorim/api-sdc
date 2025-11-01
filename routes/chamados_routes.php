@@ -13,6 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../config/jwt.php';
+require_once __DIR__ . '/../utils/log_auditoria.php';
 
 // Pegar método HTTP e a URI fragmentada
 $method = $_SERVER['REQUEST_METHOD'];
@@ -337,6 +338,16 @@ if ($method === "POST") {
         $stmtNovo->execute(['id' => $novoId]);
         $novoChamado = $stmtNovo->fetch(PDO::FETCH_ASSOC);
 
+         // 🔹 Registrar log de criação
+        registrarLogAuditoria(
+            $pdo,
+            $payload->sub,
+            'criou',
+            'Chamado criado',
+            null,
+            $novoChamado
+        );
+
         echo json_encode($novoChamado);
         exit;
     }
@@ -350,6 +361,11 @@ if ($method === "POST") {
 if ($method === "PUT" && isset($uri[1])) {
     $chamado_id = $uri[1];
     $input = json_decode(file_get_contents("php://input"), true);
+
+    // Pegar dados antigos para o log
+    $stmtAntigo = $pdo->prepare("SELECT * FROM chamados WHERE id = :id");
+    $stmtAntigo->execute(['id' => $chamado_id]);
+    $valorAntigo = $stmtAntigo->fetch(PDO::FETCH_ASSOC);
 
     // Cliente editar próprio chamado
     if ($payload->role === "cliente") {
@@ -391,6 +407,17 @@ if ($method === "PUT" && isset($uri[1])) {
             $stmtSel = $pdo->prepare("SELECT * FROM chamados WHERE id = :id");
             $stmtSel->execute(['id' => $chamado_id]);
             $chamadoAtualizado = $stmtSel->fetch(PDO::FETCH_ASSOC);
+            
+            // Registrar log de edição
+            registrarLogAuditoria(
+                $pdo,
+                $payload->sub,
+                'editou',
+                'Chamado atualizado',
+                $valorAntigo,
+                $chamadoAtualizado
+            );
+            
             echo json_encode($chamadoAtualizado);
         } else {
             http_response_code(404);
@@ -400,75 +427,123 @@ if ($method === "PUT" && isset($uri[1])) {
     }
 
     // Técnico atribuir chamado
-    if ($payload->role === "tecnico" && isset($uri[2]) && $uri[2] === "atribuir") {
-        $stmtTecnico = $pdo->prepare("SELECT id FROM tecnicos WHERE usuario_id = :usuario_id");
-        $stmtTecnico->execute(['usuario_id' => $payload->sub]);
-        $tecnico = $stmtTecnico->fetch(PDO::FETCH_ASSOC);
+   if ($payload->role === "tecnico" && isset($uri[2]) && $uri[2] === "atribuir") {
+    $stmtTecnico = $pdo->prepare("SELECT id FROM tecnicos WHERE usuario_id = :usuario_id");
+    $stmtTecnico->execute(['usuario_id' => $payload->sub]);
+    $tecnico = $stmtTecnico->fetch(PDO::FETCH_ASSOC);
 
-        if (!$tecnico) {
-            http_response_code(403);
-            echo json_encode(["erro" => "Usuário não é um técnico válido"]);
-            exit;
-        }
-
-        $stmtChamado = $pdo->prepare("SELECT status FROM chamados WHERE id = :id");
-        $stmtChamado->execute(['id' => $chamado_id]);
-        $ch = $stmtChamado->fetch(PDO::FETCH_ASSOC);
-
-        if (!$ch) {
-            http_response_code(404);
-            echo json_encode(["erro" => "Chamado não encontrado"]);
-            exit;
-        }
-
-        if ($ch['status'] !== 'aberto') {
-            http_response_code(400);
-            echo json_encode(["erro" => "Chamado não está disponível para atribuição"]);
-            exit;
-        }
-
-        $stmtUpd = $pdo->prepare("UPDATE chamados SET tecnico_id = :tecnico_id, status = 'em_andamento' WHERE id = :id");
-        $stmtUpd->execute([
-            'tecnico_id' => $tecnico['id'],
-            'id'         => $chamado_id
-        ]);
-
-        if ($stmtUpd->rowCount() > 0) {
-            echo json_encode(["status" => "Chamado atribuído com sucesso"]);
-        } else {
-            http_response_code(400);
-            echo json_encode(["erro" => "Falha ao atribuir chamado"]);
-        }
+    if (!$tecnico) {
+        http_response_code(403);
+        echo json_encode(["erro" => "Usuário não é um técnico válido"]);
         exit;
     }
+
+    // Buscar dados antigos (para log)
+    $stmtAntigo = $pdo->prepare("SELECT * FROM chamados WHERE id = :id");
+    $stmtAntigo->execute(['id' => $chamado_id]);
+    $valorAntigo = $stmtAntigo->fetch(PDO::FETCH_ASSOC);
+
+    if (!$valorAntigo) {
+        http_response_code(404);
+        echo json_encode(["erro" => "Chamado não encontrado"]);
+        exit;
+    }
+
+    if ($valorAntigo['status'] !== 'aberto') {
+        http_response_code(400);
+        echo json_encode(["erro" => "Chamado não está disponível para atribuição"]);
+        exit;
+    }
+
+    // Atualiza o chamado
+    $stmtUpd = $pdo->prepare("
+        UPDATE chamados 
+        SET tecnico_id = :tecnico_id, status = 'em_andamento' 
+        WHERE id = :id
+    ");
+    $stmtUpd->execute([
+        'tecnico_id' => $tecnico['id'],
+        'id' => $chamado_id
+    ]);
+
+    if ($stmtUpd->rowCount() > 0) {
+        // Buscar dados novos após a atribuição
+        $stmtNovo = $pdo->prepare("SELECT * FROM chamados WHERE id = :id");
+        $stmtNovo->execute(['id' => $chamado_id]);
+        $valorNovo = $stmtNovo->fetch(PDO::FETCH_ASSOC);
+
+        // Registrar log de auditoria
+        registrarLogAuditoria(
+            $pdo,
+            $payload->sub,
+            'atribuiu',
+            "Técnico atribuiu ao chamado",
+            $valorAntigo,
+            $valorNovo
+        );
+
+        echo json_encode(["status" => "Chamado atribuído com sucesso"]);
+    } else {
+        http_response_code(400);
+        echo json_encode(["erro" => "Falha ao atribuir chamado"]);
+    }
+    exit;
+}
 
     // Técnico encerrar chamado
-    if ($payload->role === "tecnico" && isset($uri[2]) && $uri[2] === "encerrar") {
-        $stmtTecnico = $pdo->prepare("SELECT id FROM tecnicos WHERE usuario_id = :usuario_id");
-        $stmtTecnico->execute(['usuario_id' => $payload->sub]);
-        $tecnico = $stmtTecnico->fetch(PDO::FETCH_ASSOC);
+   if ($payload->role === "tecnico" && isset($uri[2]) && $uri[2] === "encerrar") {
+    $stmtTecnico = $pdo->prepare("SELECT id FROM tecnicos WHERE usuario_id = :usuario_id");
+    $stmtTecnico->execute(['usuario_id' => $payload->sub]);
+    $tecnico = $stmtTecnico->fetch(PDO::FETCH_ASSOC);
 
-        if (!$tecnico) {
-            http_response_code(403);
-            echo json_encode(["erro" => "Técnico não encontrado"]);
-            exit;
-        }
-
-        $stmt = $pdo->prepare("SELECT * FROM chamados WHERE id = :id AND tecnico_id = :tecnico_id");
-        $stmt->execute(['id' => $chamado_id, 'tecnico_id' => $tecnico['id']]);
-
-        if ($stmt->rowCount() == 0) {
-            http_response_code(400);
-            echo json_encode(["erro" => "Chamado não encontrado ou não é seu"]);
-            exit;
-        }
-
-        $stmtUpd = $pdo->prepare("UPDATE chamados SET status = 'encerrado' WHERE id = :id AND tecnico_id = :tecnico_id");
-        $stmtUpd->execute(['id' => $chamado_id, 'tecnico_id' => $tecnico['id']]);
-
-        echo json_encode(["status" => "Chamado encerrado com sucesso"]);
+    if (!$tecnico) {
+        http_response_code(403);
+        echo json_encode(["erro" => "Técnico não encontrado"]);
         exit;
     }
+
+    // Buscar dados antigos (antes de encerrar)
+    $stmt = $pdo->prepare("SELECT * FROM chamados WHERE id = :id AND tecnico_id = :tecnico_id");
+    $stmt->execute(['id' => $chamado_id, 'tecnico_id' => $tecnico['id']]);
+    $valorAntigo = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$valorAntigo) {
+        http_response_code(400);
+        echo json_encode(["erro" => "Chamado não encontrado ou não é seu"]);
+        exit;
+    }
+
+    // Atualizar status para encerrado
+    $stmtUpd = $pdo->prepare("
+        UPDATE chamados 
+        SET status = 'encerrado'
+        WHERE id = :id AND tecnico_id = :tecnico_id
+    ");
+    $stmtUpd->execute(['id' => $chamado_id, 'tecnico_id' => $tecnico['id']]);
+
+    if ($stmtUpd->rowCount() > 0) {
+        // Buscar o novo estado após o encerramento
+        $stmtNovo = $pdo->prepare("SELECT * FROM chamados WHERE id = :id");
+        $stmtNovo->execute(['id' => $chamado_id]);
+        $valorNovo = $stmtNovo->fetch(PDO::FETCH_ASSOC);
+
+        // Registrar log de auditoria
+        registrarLogAuditoria(
+            $pdo,
+            $payload->sub,
+            'encerrou',
+            "Técnico encerrou o chamado ID ",
+            $valorAntigo,
+            $valorNovo
+        );
+
+        echo json_encode(["status" => "Chamado encerrado com sucesso"]);
+    } else {
+        http_response_code(400);
+        echo json_encode(["erro" => "Falha ao encerrar chamado"]);
+    }
+    exit;
+}
 
     // Técnico atualizar status simples (para encerrar via frontend)
     if ($payload->role === "tecnico") {
@@ -512,34 +587,59 @@ if ($method === "PUT" && isset($uri[1])) {
     }
 
     // ADMIN editar chamado
-    if ($payload->role === "admin") {
-        if (empty($input['titulo']) || empty($input['descricao'])) {
-            http_response_code(400);
-            echo json_encode(["erro" => "Informe 'titulo' e 'descricao'."]);
-            exit;
-        }
-        $stmtUpd = $pdo->prepare("
-            UPDATE chamados
-            SET titulo = :titulo, descricao = :descricao
-            WHERE id = :id
-        ");
-        $stmtUpd->execute([
-            'titulo'    => $input['titulo'],
-            'descricao' => $input['descricao'],
-            'id'        => $chamado_id
-        ]);
-
-        if ($stmtUpd->rowCount() > 0) {
-            $stmtSel = $pdo->prepare("SELECT * FROM chamados WHERE id = :id");
-            $stmtSel->execute(['id' => $chamado_id]);
-            $chamadoAtualizado = $stmtSel->fetch(PDO::FETCH_ASSOC);
-            echo json_encode($chamadoAtualizado);
-        } else {
-            http_response_code(404);
-            echo json_encode(["erro" => "Chamado não encontrado"]);
-        }
+   if ($payload->role === "admin") {
+    if (empty($input['titulo']) || empty($input['descricao'])) {
+        http_response_code(400);
+        echo json_encode(["erro" => "Informe 'titulo' e 'descricao'."]);
         exit;
     }
+
+    // Buscar dados antigos antes da atualização
+    $stmtAntigo = $pdo->prepare("SELECT * FROM chamados WHERE id = :id");
+    $stmtAntigo->execute(['id' => $chamado_id]);
+    $valorAntigo = $stmtAntigo->fetch(PDO::FETCH_ASSOC);
+
+    if (!$valorAntigo) {
+        http_response_code(404);
+        echo json_encode(["erro" => "Chamado não encontrado"]);
+        exit;
+    }
+
+    // Atualizar dados do chamado
+    $stmtUpd = $pdo->prepare("
+        UPDATE chamados
+        SET titulo = :titulo, descricao = :descricao
+        WHERE id = :id
+    ");
+    $stmtUpd->execute([
+        'titulo'    => $input['titulo'],
+        'descricao' => $input['descricao'],
+        'id'        => $chamado_id
+    ]);
+
+    if ($stmtUpd->rowCount() > 0) {
+        // Buscar dados novos após a atualização
+        $stmtSel = $pdo->prepare("SELECT * FROM chamados WHERE id = :id");
+        $stmtSel->execute(['id' => $chamado_id]);
+        $chamadoAtualizado = $stmtSel->fetch(PDO::FETCH_ASSOC);
+
+        // Registrar log de auditoria
+        registrarLogAuditoria(
+            $pdo,
+            $payload->sub,
+            'editou',
+            'Chamado atualizado pelo administrador',
+            $valorAntigo,
+            $chamadoAtualizado
+        );
+
+        echo json_encode($chamadoAtualizado);
+    } else {
+        http_response_code(404);
+        echo json_encode(["erro" => "Chamado não encontrado ou sem alterações"]);
+    }
+    exit;
+}
 
     http_response_code(404);
     echo json_encode(["erro" => "Ação PUT não encontrada"]);
@@ -550,16 +650,34 @@ if ($method === "PUT" && isset($uri[1])) {
 if ($method === "DELETE" && isset($uri[1])) {
     if ($payload->role === "admin") {
         $chamado_id = $uri[1];
-        $stmtChk = $pdo->prepare("SELECT id FROM chamados WHERE id = :id");
+
+        // Pegar todos os dados do chamado para log
+        $stmtChk = $pdo->prepare("SELECT * FROM chamados WHERE id = :id");
         $stmtChk->execute(['id' => $chamado_id]);
-        if ($stmtChk->rowCount() == 0) {
+        $valorAntigo = $stmtChk->fetch(PDO::FETCH_ASSOC);
+
+        if (!$valorAntigo) {
             http_response_code(404);
             echo json_encode(["erro" => "Chamado não encontrado"]);
             exit;
         }
 
+        // Deletar chamado
         $stmtDel = $pdo->prepare("DELETE FROM chamados WHERE id = :id");
         $stmtDel->execute(['id' => $chamado_id]);
+
+       error_log("Tentando registrar log de deleção do chamado: " . json_encode($valorAntigo));
+        registrarLogAuditoria(
+            $pdo,
+            $payload->sub,
+            'deletou',
+            'Chamado deletado',
+            $valorAntigo,
+            null
+        );
+        error_log("Log registrado");
+
+
         echo json_encode(["status" => "Chamado deletado com sucesso"]);
         exit;
     } else {
@@ -569,7 +687,8 @@ if ($method === "DELETE" && isset($uri[1])) {
     }
 }
 
+
 // Se chegar aqui, rota não encontrada
-http_response_code(404);
+http_response_code(404);    
 echo json_encode(["erro" => "Rota não encontrada"]);
 exit;

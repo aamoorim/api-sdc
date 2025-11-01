@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../config/jwt.php';
+require_once __DIR__ . '/../utils/log_auditoria.php';
 
 // Função para validar senha
 function validarSenha($senha) {
@@ -133,8 +134,23 @@ if ($uri[0] === "clientes") {
             ]);
             $cliente_id = $pdo->lastInsertId();
 
-            $pdo->commit();
+            registrarLogAuditoria(
+                $pdo,
+                $payload->sub,
+                "criou",
+                "Criou novo cliente",
+                null,
+                [
+                    "cliente_id" => $cliente_id,
+                    "usuario_id" => $usuario_id,
+                    "nome" => $input['nome'],
+                    "email" => $input['email'],
+                    "empresa" => $input['empresa'],
+                    "setor" => $input['setor']
+                ]
+            );
 
+            $pdo->commit();
             echo json_encode([
                 "status" => "Cliente criado com sucesso",
                 "id" => $cliente_id,
@@ -156,144 +172,183 @@ if ($uri[0] === "clientes") {
         exit;
     }
 
-    // PUT - Editar cliente (apenas admin)
-    if ($method === "PUT" && isset($uri[1])) {
-        if ($payload->role !== "admin") {
-            http_response_code(403);
-            echo json_encode(["erro" => "Acesso negado"]);
-            exit;
-        }
-
-        $cliente_id = $uri[1];
-        $input = json_decode(file_get_contents("php://input"), true);
-
-        if (empty($input['nome']) || empty($input['email']) || empty($input['empresa']) || empty($input['setor'])) {
-            http_response_code(400);
-            echo json_encode(["erro" => "Nome, email, empresa e setor são obrigatórios"]);
-            exit;
-        }
-
-        try {
-            $pdo->beginTransaction();
-
-            $stmt = $pdo->prepare("SELECT usuario_id FROM clientes WHERE id = :id");
-            $stmt->execute(['id' => $cliente_id]);
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$result) {
-                http_response_code(404);
-                echo json_encode(["erro" => "Cliente não encontrado"]);
-                exit;
-            }
-
-            $usuario_id = $result['usuario_id'];
-
-            $stmt = $pdo->prepare("UPDATE usuarios SET nome = :nome, email = :email WHERE id = :id");
-            $stmt->execute([
-                "nome" => $input['nome'],
-                "email" => $input['email'],
-                "id" => $usuario_id
-            ]);
-
-            $stmt = $pdo->prepare("UPDATE clientes SET empresa = :empresa, setor = :setor WHERE id = :id");
-            $stmt->execute([
-                "empresa" => $input['empresa'],
-                "setor" => $input['setor'],
-                "id" => $cliente_id
-            ]);
-
-            // Senha
-            $senhaRetorno = "não alterada";
-            if (isset($input['senha'])) {
-                if (!empty($input['senha'])) {
-                    $validacao = validarSenha($input['senha']);
-                    if ($validacao !== true) {
-                        http_response_code(400);
-                        echo json_encode(["erro" => $validacao]);
-                        exit;
-                    }
-                    $hash = password_hash($input['senha'], PASSWORD_BCRYPT);
-                    $stmt = $pdo->prepare("UPDATE usuarios SET senha = :senha WHERE id = :id");
-                    $stmt->execute(['senha' => $hash, 'id' => $usuario_id]);
-                    $senhaRetorno = $input['senha'];
-                }
-            }
-
-            $pdo->commit();
-
-            echo json_encode([
-                "status" => "Cliente atualizado com sucesso",
-                "senha_atual" => $senhaRetorno
-            ]);
-            exit;
-
-        } catch (PDOException $e) {
-            $pdo->rollBack();
-
-            if ($e->getCode() == 23000) {
-                http_response_code(400);
-                echo json_encode(["erro" => "Email já existe"]);
-            } else {
-                http_response_code(500);
-                echo json_encode(["erro" => "Erro interno do servidor: " . $e->getMessage()]);
-            }
-        }
+  // PUT - Editar cliente (apenas admin)
+if ($method === "PUT" && isset($uri[1])) {
+    if ($payload->role !== "admin") {
+        http_response_code(403);
+        echo json_encode(["erro" => "Acesso negado"]);
         exit;
     }
 
-    // DELETE - Excluir cliente (apenas admin)
-    if ($method === "DELETE" && isset($uri[1])) {
-        if ($payload->role !== "admin") {
-            http_response_code(403);
-            echo json_encode(["erro" => "Acesso negado"]);
+    $cliente_id = $uri[1];
+    $input = json_decode(file_get_contents("php://input"), true);
+
+    // Validação básica
+    if (empty($input['nome']) || empty($input['email']) || empty($input['empresa']) || empty($input['setor'])) {
+        http_response_code(400);
+        echo json_encode(["erro" => "Nome, email, empresa e setor são obrigatórios"]);
+        exit;
+    }
+
+    try {
+        $pdo->beginTransaction();
+
+        // Buscar o usuario_id do cliente
+        $stmt = $pdo->prepare("SELECT usuario_id FROM clientes WHERE id = :id");
+        $stmt->execute(['id' => $cliente_id]);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$result) {
+            http_response_code(404);
+            echo json_encode(["erro" => "Cliente não encontrado"]);
             exit;
         }
 
-        $cliente_id = $uri[1];
+        $usuario_id = $result['usuario_id'];
 
-        try {
-            $pdo->beginTransaction();
+        // Buscar dados antigos antes da atualização
+        $stmt = $pdo->prepare("
+            SELECT u.nome, u.email, c.empresa, c.setor 
+            FROM usuarios u 
+            JOIN clientes c ON u.id = c.usuario_id 
+            WHERE c.id = :id
+        ");
+        $stmt->execute(['id' => $cliente_id]);
+        $dados_antigos = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM chamados WHERE cliente_id = :id");
-            $stmt->execute(['id' => $cliente_id]);
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        // Atualizar dados na tabela usuarios
+        $stmt = $pdo->prepare("UPDATE usuarios SET nome = :nome, email = :email WHERE id = :id");
+        $stmt->execute([
+            "nome" => $input['nome'],
+            "email" => $input['email'],
+            "id" => $usuario_id
+        ]);
 
-            if ($result['total'] > 0) {
-                http_response_code(400);
-                echo json_encode(["erro" => "Não é possível excluir cliente que possui chamados"]);
-                exit;
-            }
+        // Atualizar dados na tabela clientes
+        $stmt = $pdo->prepare("UPDATE clientes SET empresa = :empresa, setor = :setor WHERE id = :id");
+        $stmt->execute([
+            "empresa" => $input['empresa'],
+            "setor" => $input['setor'],
+            "id" => $cliente_id
+        ]);
 
-            $stmt = $pdo->prepare("SELECT usuario_id FROM clientes WHERE id = :id");
-            $stmt->execute(['id' => $cliente_id]);
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        // Se foi fornecida nova senha, atualizar
+        $senha_alterada = false;
+        if (!empty($input['senha'])) {
+            $hash = password_hash($input['senha'], PASSWORD_BCRYPT);
+            $stmt = $pdo->prepare("UPDATE usuarios SET senha = :senha WHERE id = :id");
+            $stmt->execute(['senha' => $hash, 'id' => $usuario_id]);
+            $senha_alterada = true;
+        }
 
-            if (!$result) {
-                http_response_code(404);
-                echo json_encode(["erro" => "Cliente não encontrado"]);
-                exit;
-            }
+        // Registrar log de auditoria
+        registrarLogAuditoria(
+            $pdo,
+            $payload->sub,
+            "editou",
+            "Editou cliente",
+            $dados_antigos,
+            [
+                "nome" => $input['nome'],
+                "email" => $input['email'],
+                "empresa" => $input['empresa'],
+                "setor" => $input['setor'],
+                "senha" => $senha_alterada ? "[alterada]" : "[inalterada]"
+            ]
+        );
 
-            $usuario_id = $result['usuario_id'];
+        $pdo->commit();
 
-            $stmt = $pdo->prepare("DELETE FROM clientes WHERE id = :id");
-            $stmt->execute(['id' => $cliente_id]);
+        echo json_encode(["status" => "Cliente atualizado com sucesso"]);
 
-            $stmt = $pdo->prepare("DELETE FROM usuarios WHERE id = :id");
-            $stmt->execute(['id' => $usuario_id]);
+    } catch (PDOException $e) {
+        $pdo->rollBack();
 
-            $pdo->commit();
-
-            echo json_encode(["status" => "Cliente excluído com sucesso"]);
-
-        } catch (PDOException $e) {
-            $pdo->rollBack();
+        if ($e->getCode() == 23000) {
+            http_response_code(400);
+            echo json_encode(["erro" => "Email já existe"]);
+        } else {
             http_response_code(500);
             echo json_encode(["erro" => "Erro interno do servidor: " . $e->getMessage()]);
         }
+    }
+    exit;
+}
+
+
+    // DELETE - Excluir cliente (apenas admin)
+    if ($method === "DELETE" && isset($uri[1])) {
+    if ($payload->role !== "admin") {
+        http_response_code(403);
+        echo json_encode(["erro" => "Acesso negado"]);
         exit;
     }
 
+    $cliente_id = $uri[1];
+
+    try {
+        $pdo->beginTransaction();
+
+        // Verificar se o cliente tem chamados
+        $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM chamados WHERE cliente_id = :id");
+        $stmt->execute(['id' => $cliente_id]);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($result['total'] > 0) {
+            http_response_code(400);
+            echo json_encode(["erro" => "Não é possível excluir cliente que possui chamados"]);
+            exit;
+        }
+
+        // Buscar dados do cliente antes de excluir
+        $stmt = $pdo->prepare("
+            SELECT u.nome, u.email, c.empresa, c.setor, c.id as cliente_id, u.id as usuario_id
+            FROM usuarios u 
+            JOIN clientes c ON u.id = c.usuario_id 
+            WHERE c.id = :id
+        ");
+        $stmt->execute(['id' => $cliente_id]);
+        $dados_antigos = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$dados_antigos) {
+            http_response_code(404);
+            echo json_encode(["erro" => "Cliente não encontrado"]);
+            exit;
+        }
+
+        $usuario_id = $dados_antigos['usuario_id'];
+
+        // Excluir da tabela clientes primeiro
+        $stmt = $pdo->prepare("DELETE FROM clientes WHERE id = :id");
+        $stmt->execute(['id' => $cliente_id]);
+
+        // Depois excluir da tabela usuarios
+        $stmt = $pdo->prepare("DELETE FROM usuarios WHERE id = :id");
+        $stmt->execute(['id' => $usuario_id]);
+
+        // Registrar log de auditoria
+        registrarLogAuditoria(
+            $pdo,
+            $payload->sub,
+            "deletou",
+            "Excluiu cliente",
+            $dados_antigos,
+            null
+        );
+
+        $pdo->commit();
+
+        echo json_encode(["status" => "Cliente excluído com sucesso"]);
+
+    } catch (PDOException $e) {
+        $pdo->rollBack();
+        http_response_code(500);
+        echo json_encode(["erro" => "Erro interno do servidor: " . $e->getMessage()]);
+    }
+    exit;
+  }
+
+    // Se chegou até aqui, rota não encontrada
     http_response_code(404);
     echo json_encode(["erro" => "Ação não encontrada"]);
     exit;
