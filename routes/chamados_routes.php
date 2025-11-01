@@ -234,7 +234,7 @@ if ($method === "POST") {
         registrarLogAuditoria(
             $pdo,
             $payload->sub,
-            'criacao',
+            'criou',
             'Chamado criado',
             null,
             $novoChamado
@@ -304,7 +304,7 @@ if ($method === "PUT" && isset($uri[1])) {
             registrarLogAuditoria(
                 $pdo,
                 $payload->sub,
-                'edição',
+                'editou',
                 'Chamado atualizado',
                 $valorAntigo,
                 $chamadoAtualizado
@@ -562,7 +562,7 @@ if ($method === "DELETE" && isset($uri[1])) {
         registrarLogAuditoria(
             $pdo,
             $payload->sub,
-            'delecao',
+            'deletou',
             'Chamado deletado',
             $valorAntigo,
             null

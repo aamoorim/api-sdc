@@ -72,11 +72,11 @@ if ($uri[0] === "tecnicos") {
         
         $pdo->commit();
 
-        // ✅ Registrar log de auditoria
+        // Registrar log de auditoria
         registrarLogAuditoria(
             $pdo,
             $payload->sub, 
-            'criar tecnico',
+            'criou',
             "Criou o técnico",
             null,
             [
@@ -173,11 +173,11 @@ if ($uri[0] === "tecnicos") {
         
         $pdo->commit();
 
-        // ✅ Registrar log de auditoria
+        // Registrar log de auditoria
         registrarLogAuditoria(
             $pdo,
             $payload->sub, 
-            'editar',
+            'editou',
             "Editou o técnico",
             $valor_antigo,
             [
@@ -253,8 +253,8 @@ if ($uri[0] === "tecnicos") {
         registrarLogAuditoria(
             $pdo,
             $payload->sub,
-            'deletar_tecnico',
-            "Excluiu o técnico {$valor_antigo['nome']} (ID técnico: {$valor_antigo['tecnico_id']}, ID usuário: {$valor_antigo['usuario_id']})",
+            'deletou',
+            "Excluiu o técnico",
             $valor_antigo,
             null
         );

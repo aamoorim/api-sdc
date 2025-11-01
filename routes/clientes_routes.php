@@ -111,7 +111,7 @@ if ($uri[0] === "clientes") {
             registrarLogAuditoria(
                 $pdo,
                 $payload->sub,
-                "criar",
+                "criou",
                 "Criou novo cliente",
                 null,
                 [
@@ -146,8 +146,7 @@ if ($uri[0] === "clientes") {
         exit;
     }
 
-    // PUT - Editar cliente (apenas admin)
-    // PUT - Editar cliente (apenas admin)
+  // PUT - Editar cliente (apenas admin)
 if ($method === "PUT" && isset($uri[1])) {
     if ($payload->role !== "admin") {
         http_response_code(403);
@@ -220,7 +219,7 @@ if ($method === "PUT" && isset($uri[1])) {
         registrarLogAuditoria(
             $pdo,
             $payload->sub,
-            "editar",
+            "editou",
             "Editou cliente",
             $dados_antigos,
             [
@@ -305,7 +304,7 @@ if ($method === "PUT" && isset($uri[1])) {
         registrarLogAuditoria(
             $pdo,
             $payload->sub,
-            "deletar",
+            "deletou",
             "Excluiu cliente",
             $dados_antigos,
             null
