@@ -75,7 +75,7 @@ if ($uri[0] === "tecnicos") {
         // ✅ Registrar log de auditoria
         registrarLogAuditoria(
             $pdo,
-            $payload->sub, // ID do usuário autenticado que fez a ação
+            $payload->sub, 
             'criar tecnico',
             "Criou o técnico",
             null,
@@ -176,7 +176,7 @@ if ($uri[0] === "tecnicos") {
         // ✅ Registrar log de auditoria
         registrarLogAuditoria(
             $pdo,
-            $payload->sub, // ou $payload->id dependendo do seu JWT
+            $payload->sub, 
             'editar',
             "Editou o técnico",
             $valor_antigo,
@@ -204,55 +204,70 @@ if ($uri[0] === "tecnicos") {
 }
     
     // DELETE - Excluir técnico
-    if ($method === "DELETE" && isset($uri[1])) {
-        $tecnico_id = $uri[1];
-        
-        try {
-            $pdo->beginTransaction();
-            
-            // Verificar se o técnico tem chamados atribuídos
-            $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM chamados WHERE tecnico_id = :id");
-            $stmt->execute(['id' => $tecnico_id]);
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            if ($result['total'] > 0) {
-                http_response_code(400);
-                echo json_encode(["erro" => "Não é possível excluir técnico que possui chamados atribuídos"]);
-                exit;
-            }
-            
-            // Buscar o usuario_id do técnico
-            $stmt = $pdo->prepare("SELECT usuario_id FROM tecnicos WHERE id = :id");
-            $stmt->execute(['id' => $tecnico_id]);
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            if (!$result) {
-                http_response_code(404);
-                echo json_encode(["erro" => "Técnico não encontrado"]);
-                exit;
-            }
-            
-            $usuario_id = $result['usuario_id'];
-            
-            // Excluir da tabela tecnicos primeiro
-            $stmt = $pdo->prepare("DELETE FROM tecnicos WHERE id = :id");
-            $stmt->execute(['id' => $tecnico_id]);
-            
-            // Depois excluir da tabela usuarios
-            $stmt = $pdo->prepare("DELETE FROM usuarios WHERE id = :id");
-            $stmt->execute(['id' => $usuario_id]);
-            
-            $pdo->commit();
-            
-            echo json_encode(["status" => "Técnico excluído com sucesso"]);
-            
-        } catch (PDOException $e) {
-            $pdo->rollBack();
-            http_response_code(500);
-            echo json_encode(["erro" => "Erro interno do servidor: " . $e->getMessage()]);
+   if ($method === "DELETE" && isset($uri[1])) {
+    $tecnico_id = $uri[1];
+    
+    try {
+        $pdo->beginTransaction();
+
+        // Buscar dados antes da exclusão (para log)
+        $stmt = $pdo->prepare("
+            SELECT t.id AS tecnico_id, t.cargo, u.id AS usuario_id, u.nome, u.email
+            FROM tecnicos t
+            JOIN usuarios u ON t.usuario_id = u.id
+            WHERE t.id = :id
+        ");
+        $stmt->execute(['id' => $tecnico_id]);
+        $valor_antigo = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$valor_antigo) {
+            http_response_code(404);
+            echo json_encode(["erro" => "Técnico não encontrado"]);
+            exit;
         }
-        exit;
+
+        $usuario_id = $valor_antigo['usuario_id'];
+
+        // Verificar se o técnico tem chamados atribuídos
+        $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM chamados WHERE tecnico_id = :id");
+        $stmt->execute(['id' => $tecnico_id]);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($result['total'] > 0) {
+            http_response_code(400);
+            echo json_encode(["erro" => "Não é possível excluir técnico que possui chamados atribuídos"]);
+            exit;
+        }
+
+        // Excluir da tabela tecnicos primeiro
+        $stmt = $pdo->prepare("DELETE FROM tecnicos WHERE id = :id");
+        $stmt->execute(['id' => $tecnico_id]);
+
+        // Depois excluir da tabela usuarios
+        $stmt = $pdo->prepare("DELETE FROM usuarios WHERE id = :id");
+        $stmt->execute(['id' => $usuario_id]);
+
+        $pdo->commit();
+
+        // Registra no log de auditoria
+        registrarLogAuditoria(
+            $pdo,
+            $payload->sub,
+            'deletar_tecnico',
+            "Excluiu o técnico {$valor_antigo['nome']} (ID técnico: {$valor_antigo['tecnico_id']}, ID usuário: {$valor_antigo['usuario_id']})",
+            $valor_antigo,
+            null
+        );
+
+        echo json_encode(["status" => "Técnico excluído com sucesso"]);
+
+    } catch (PDOException $e) {
+        $pdo->rollBack();
+        http_response_code(500);
+        echo json_encode(["erro" => "Erro interno do servidor: " . $e->getMessage()]);
     }
+    exit;
+}
     
     // Se chegou até aqui, rota não encontrada
     http_response_code(404);
