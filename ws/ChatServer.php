@@ -162,10 +162,17 @@ class ChatServer extends WebSocketServer
 
                     foreach ($this->users as $u) {
                         if ($u->current_chamado === $user->current_chamado) {
+                            
+                            // ❌ Não reenviar para o remetente
+                            if ($u->id === $user->id) {
+                                continue;
+                            }
+
                             $this->send($u, json_encode($msg));
                             $this->log("📤 Mensagem enviada para usuário {$u->id}", 'INFO');
                         }
                     }
+
                     break;
 
                 default:
