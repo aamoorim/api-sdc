@@ -1,5 +1,8 @@
 <?php 
 
+
+require_once __DIR__ . '/../config/jwt.php';
+require_once __DIR__ . '/../config/db.php';
 // ROTA: GET /logs — Somente admin pode acessar
 $payload = autenticar();
 
