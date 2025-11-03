@@ -22,7 +22,7 @@ if ($method === "GET") {
             SELECT 
                 l.id,
                 l.id_autor,
-                u.nome AS autor_nome, -- 👈 puxando o nome do usuário
+                u.nome AS autor_nome, 
                 l.acao,
                 l.descricao,
                 l.valor_antigo,
