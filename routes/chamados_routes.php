@@ -513,7 +513,7 @@ if ($method === "PUT" && isset($uri[1])) {
         exit;
     }
 
-    // Atualizar status para encerrado
+    // Atualizar status
     $stmtUpd = $pdo->prepare("
         UPDATE chamados 
         SET status = 'encerrado'
@@ -522,12 +522,11 @@ if ($method === "PUT" && isset($uri[1])) {
     $stmtUpd->execute(['id' => $chamado_id, 'tecnico_id' => $tecnico['id']]);
 
     if ($stmtUpd->rowCount() > 0) {
-        // Buscar o novo estado após o encerramento
         $stmtNovo = $pdo->prepare("SELECT * FROM chamados WHERE id = :id");
         $stmtNovo->execute(['id' => $chamado_id]);
         $valorNovo = $stmtNovo->fetch(PDO::FETCH_ASSOC);
 
-        // Registrar log de auditoria
+        // 🔹 Registrar log de encerramento
         registrarLogAuditoria(
             $pdo,
             $payload->sub,
@@ -542,8 +541,9 @@ if ($method === "PUT" && isset($uri[1])) {
         http_response_code(400);
         echo json_encode(["erro" => "Falha ao encerrar chamado"]);
     }
+
     exit;
-}
+  }
 
     // Técnico atualizar status simples (para encerrar via frontend)
     if ($payload->role === "tecnico") {
