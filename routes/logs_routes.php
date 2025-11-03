@@ -1,16 +1,17 @@
-<?php 
-
+<?php
 
 require_once __DIR__ . '/../config/jwt.php';
 require_once __DIR__ . '/../config/db.php';
-// ROTA: GET /logs — Somente admin pode acessar
-$payload = autenticar();
 
-if ($path === '/logs' && $_SERVER['REQUEST_METHOD'] === 'GET') {
-    // Verifica autenticação
+// Autentica usuário pelo JWT
+$payload = autenticar();
+$method = $_SERVER['REQUEST_METHOD'];
+
+// GET - Buscar logs (somente admin)
+if ($method === "GET") {
 
     // Verifica se é admin
-    if ($payload->role === 'admin') {
+    if (!isset($payload->role) || $payload->role !== "admin") {
         http_response_code(403);
         echo json_encode(["error" => "Acesso negado: apenas administradores"]);
         exit;
@@ -19,32 +20,35 @@ if ($path === '/logs' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     try {
         $stmt = $pdo->prepare("
             SELECT 
-                l.id,
-                l.id_autor,
-                u.nome AS usuario_nome,
-                l.acao,
-                l.descricao,
-                l.valor_antigo,
-                l.valor_novo,
-                l.data_hora
-            FROM logs_auditoria l
-            LEFT JOIN usuarios u ON l.id_autor = u.id
-            ORDER BY l.data_hora DESC
+                id,
+                id_autor,
+                acao,
+                descricao,
+                valor_antigo,
+                valor_novo,
+                data_hora
+            FROM logs_auditoria
+            ORDER BY data_hora DESC
         ");
-
+        
         $stmt->execute();
         $logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        header('Content-Type: application/json');
         echo json_encode($logs);
+        exit;
 
     } catch (PDOException $e) {
         http_response_code(500);
-        echo json_encode(["error" => "Erro ao buscar logs", "detalhes" => $e->getMessage()]);
+        echo json_encode([
+            "error" => "Erro ao buscar logs",
+            "detalhes" => $e->getMessage()
+        ]);
+        exit;
     }
-
-    exit;
 }
 
+http_response_code(405);
+echo json_encode(["error" => "Método não permitido"]);
+exit;
 
-?>;
+?>
